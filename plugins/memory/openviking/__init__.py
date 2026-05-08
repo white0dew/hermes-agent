@@ -100,18 +100,17 @@ class _VikingClient:
             raise ImportError("httpx is required for OpenViking: pip install httpx")
 
     def _headers(self) -> dict:
-        # Only send tenant headers when the user actually configured them.
-        # Legacy installs had account/user defaulted to the literal string
-        # "default" — treat that as unset so authenticated remote servers
-        # that derive tenancy from the Bearer key aren't overridden by a
-        # bogus tenant value.
+        # Preserve explicit tenant routing for local mode and root keys.
+        # Some remote deployments also use the literal "default" tenant, but
+        # non-root user keys may derive tenancy from the Bearer key instead.
         h = {
             "Content-Type": "application/json",
             "X-OpenViking-Agent": self._agent,
         }
-        if self._account and self._account != "default":
+        root_key = self._api_key.startswith("ov-root-")
+        if self._account and (self._account != "default" or not self._api_key or root_key):
             h["X-OpenViking-Account"] = self._account
-        if self._user and self._user != "default":
+        if self._user and (self._user != "default" or not self._api_key or root_key):
             h["X-OpenViking-User"] = self._user
         if self._api_key:
             h["X-API-Key"] = self._api_key

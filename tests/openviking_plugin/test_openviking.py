@@ -2,7 +2,7 @@
 
 import json
 
-from plugins.memory.openviking import OpenVikingMemoryProvider
+from plugins.memory.openviking import OpenVikingMemoryProvider, _VikingClient
 
 
 class FakeVikingClient:
@@ -24,6 +24,36 @@ class TestOpenVikingSummaryUriNormalization:
         assert OpenVikingMemoryProvider._normalize_summary_uri("viking://resources/.abstract.md") == "viking://resources"
         assert OpenVikingMemoryProvider._normalize_summary_uri("viking://") == "viking://"
         assert OpenVikingMemoryProvider._normalize_summary_uri("viking://user/hermes/memories/profile.md") == "viking://user/hermes/memories/profile.md"
+
+
+class TestOpenVikingHeaders:
+    def test_root_key_keeps_default_tenant_headers(self):
+        client = _VikingClient(
+            "http://example.com",
+            api_key="ov-root-test",
+            account="default",
+            user="default",
+            agent="hermes",
+        )
+
+        headers = client._headers()
+
+        assert headers["X-OpenViking-Account"] == "default"
+        assert headers["X-OpenViking-User"] == "default"
+
+    def test_user_key_omits_default_tenant_headers(self):
+        client = _VikingClient(
+            "http://example.com",
+            api_key="ov-user-test",
+            account="default",
+            user="default",
+            agent="hermes",
+        )
+
+        headers = client._headers()
+
+        assert "X-OpenViking-Account" not in headers
+        assert "X-OpenViking-User" not in headers
 
 
 class TestOpenVikingRead:

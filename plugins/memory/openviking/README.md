@@ -28,6 +28,15 @@ All config via environment variables in `.env`:
 |---------|---------|-------------|
 | `OPENVIKING_ENDPOINT` | `http://127.0.0.1:1933` | Server URL |
 | `OPENVIKING_API_KEY` | (none) | API key (optional) |
+| `OPENVIKING_ACCOUNT` | `default` | Tenant account ID |
+| `OPENVIKING_USER` | `default` | Tenant user ID within the account |
+| `OPENVIKING_AGENT` | `hermes` | Agent namespace sent to OpenViking |
+
+## Notes
+
+- With no API key, Hermes uses the local/default tenant and sends `OPENVIKING_ACCOUNT` / `OPENVIKING_USER` as configured.
+- With a root key such as `ov-root-*`, Hermes also sends the configured tenant headers, including the literal `default` value. Some tenant-scoped OpenViking deployments reject root-key requests unless `X-OpenViking-Account` and `X-OpenViking-User` are present.
+- With a non-root user key, the literal `default` tenant is still treated as implicit and the headers are omitted, so the server can derive tenancy from the key itself.
 
 ## Tools
 
