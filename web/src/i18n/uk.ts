@@ -202,6 +202,8 @@ export const uk: Translations = {
     confirmDeleteMessage:
       "Це видаляє завдання з розкладу. Цю дію не можна скасувати.",
     confirmDeleteTitle: "Видалити заплановане завдання?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Нове Cron-завдання",
     nameOptional: "Назва (необов'язково)",
     namePlaceholder: "напр. Щоденне зведення",
@@ -210,6 +212,8 @@ export const uk: Translations = {
     schedule: "Розклад (cron-вираз)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Надіслати на",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Заплановані завдання",
     noJobs: "Cron-завдань не налаштовано. Створіть одне вище.",
     last: "Останнє",
@@ -223,6 +227,7 @@ export const uk: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

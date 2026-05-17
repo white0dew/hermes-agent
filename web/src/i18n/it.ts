@@ -202,6 +202,8 @@ export const it: Translations = {
     confirmDeleteMessage:
       "Questa operazione rimuove l'attività dalla pianificazione. Non può essere annullata.",
     confirmDeleteTitle: "Eliminare l'attività pianificata?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Nuova attività cron",
     nameOptional: "Nome (facoltativo)",
     namePlaceholder: "es. Riepilogo giornaliero",
@@ -210,6 +212,8 @@ export const it: Translations = {
     schedule: "Pianificazione (espressione cron)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Consegna a",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Attività pianificate",
     noJobs: "Nessuna attività cron configurata. Creane una sopra.",
     last: "Ultima",
@@ -223,6 +227,7 @@ export const it: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

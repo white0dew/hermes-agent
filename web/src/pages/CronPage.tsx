@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { Clock, Pause, Play, Plus, Trash2, X, Zap } from "lucide-react";
+import {
+  Clock,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Save,
+  Trash2,
+  X,
+  Zap,
+} from "lucide-react";
 import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
@@ -77,6 +87,33 @@ const STATUS_TONE: Record<string, "success" | "warning" | "destructive"> = {
   completed: "destructive",
 };
 
+const DELIVERY_OPTIONS = [
+  "local",
+  "telegram",
+  "discord",
+  "slack",
+  "email",
+  "feishu",
+] as const;
+
+function splitDeliver(value?: string | null): { kind: string; target: string } {
+  const raw = (value || "local").trim();
+  if (raw.startsWith("feishu:")) {
+    return {
+      kind: "feishu",
+      target: raw.slice("feishu:".length).trim(),
+    };
+  }
+  return { kind: raw || "local", target: "" };
+}
+
+function buildDeliver(kind: string, target: string): string {
+  if (kind === "feishu") {
+    return target.trim() ? `feishu:${target.trim()}` : "feishu";
+  }
+  return kind;
+}
+
 export default function CronPage() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +121,6 @@ export default function CronPage() {
   const { t } = useI18n();
   const { setEnd } = usePageHeader();
 
-  // New job modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [schedule, setSchedule] = useState("");
@@ -95,7 +131,15 @@ export default function CronPage() {
     onClose: closeCreateModal,
   });
   const [deliver, setDeliver] = useState("local");
+  const [deliverTarget, setDeliverTarget] = useState("");
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingPrompt, setEditingPrompt] = useState("");
+  const [editingSchedule, setEditingSchedule] = useState("");
+  const [editingName, setEditingName] = useState("");
+  const [editingDeliver, setEditingDeliver] = useState("local");
+  const [editingDeliverTarget, setEditingDeliverTarget] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const loadJobs = useCallback(() => {
     api
@@ -120,19 +164,83 @@ export default function CronPage() {
         prompt: prompt.trim(),
         schedule: schedule.trim(),
         name: name.trim() || undefined,
-        deliver,
+        deliver: buildDeliver(deliver, deliverTarget),
       });
       showToast(t.common.create + " ✓", "success");
       setPrompt("");
       setSchedule("");
       setName("");
       setDeliver("local");
+      setDeliverTarget("");
       setCreateModalOpen(false);
       loadJobs();
     } catch (e) {
       showToast(`${t.config.failedToSave}: ${e}`, "error");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const startEdit = useCallback((job: CronJob) => {
+    const parsedDeliver = splitDeliver(job.deliver);
+    setEditingId(job.id);
+    setEditingPrompt(getJobPrompt(job));
+    setEditingSchedule(getJobScheduleDisplay(job));
+    setEditingName(getJobName(job));
+    setEditingDeliver(parsedDeliver.kind);
+    setEditingDeliverTarget(parsedDeliver.target);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setEditingPrompt("");
+    setEditingSchedule("");
+    setEditingName("");
+    setEditingDeliver("local");
+    setEditingDeliverTarget("");
+    setSavingEdit(false);
+  }, []);
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return;
+    if (!editingPrompt.trim() || !editingSchedule.trim()) {
+      showToast(`${t.cron.prompt} & ${t.cron.schedule} required`, "error");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await api.updateCronJob(editingId, {
+        prompt: editingPrompt.trim(),
+        schedule: editingSchedule.trim(),
+        name: editingName.trim() || undefined,
+        deliver: buildDeliver(editingDeliver, editingDeliverTarget),
+      });
+      showToast(`${t.common.save} ✓`, "success");
+      cancelEdit();
+      loadJobs();
+    } catch (e) {
+      showToast(`${t.config.failedToSave}: ${e}`, "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const deliveryLabel = (value: string) => {
+    switch (value) {
+      case "local":
+        return t.cron.delivery.local;
+      case "telegram":
+        return t.cron.delivery.telegram;
+      case "discord":
+        return t.cron.delivery.discord;
+      case "slack":
+        return t.cron.delivery.slack;
+      case "email":
+        return t.cron.delivery.email;
+      case "feishu":
+        return t.cron.delivery.feishu;
+      default:
+        return value;
     }
   };
 
@@ -191,7 +299,6 @@ export default function CronPage() {
     ),
   });
 
-  // Put "Create" button in page header
   useLayoutEffect(() => {
     setEnd(
       <Button
@@ -239,7 +346,6 @@ export default function CronPage() {
         loading={jobDelete.isDeleting}
       />
 
-      {/* Create job modal */}
       {createModalOpen && (
         <div
           ref={createModalRef}
@@ -249,18 +355,18 @@ export default function CronPage() {
           aria-modal="true"
           aria-labelledby="create-cron-title"
         >
-          <div className="relative w-full max-w-lg border border-border bg-card shadow-2xl flex flex-col">
+          <div className="relative flex w-full max-w-lg flex-col border border-border bg-card shadow-2xl">
             <Button
               ghost
               size="icon"
               onClick={() => setCreateModalOpen(false)}
               className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
-              aria-label="Close"
+              aria-label={t.common.close}
             >
               <X />
             </Button>
 
-            <header className="p-5 pb-3 border-b border-border">
+            <header className="border-b border-border p-5 pb-3">
               <h2
                 id="create-cron-title"
                 className="font-display text-base tracking-wider uppercase"
@@ -269,7 +375,7 @@ export default function CronPage() {
               </h2>
             </header>
 
-            <div className="p-5 grid gap-4">
+            <div className="grid gap-4 p-5">
               <div className="grid gap-2">
                 <Label htmlFor="cron-name">{t.cron.nameOptional}</Label>
                 <Input
@@ -285,14 +391,14 @@ export default function CronPage() {
                 <Label htmlFor="cron-prompt">{t.cron.prompt}</Label>
                 <textarea
                   id="cron-prompt"
-                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 focus-visible:border-foreground/25"
+                  className="flex min-h-[80px] w-full border border-border bg-background/40 px-3 py-2 text-sm font-courier shadow-sm placeholder:text-muted-foreground focus-visible:border-foreground/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
                   placeholder={t.cron.promptPlaceholder}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <Label htmlFor="cron-schedule">{t.cron.schedule}</Label>
                   <Input
@@ -310,24 +416,26 @@ export default function CronPage() {
                     value={deliver}
                     onValueChange={(v) => setDeliver(v)}
                   >
-                    <SelectOption value="local">
-                      {t.cron.delivery.local}
-                    </SelectOption>
-                    <SelectOption value="telegram">
-                      {t.cron.delivery.telegram}
-                    </SelectOption>
-                    <SelectOption value="discord">
-                      {t.cron.delivery.discord}
-                    </SelectOption>
-                    <SelectOption value="slack">
-                      {t.cron.delivery.slack}
-                    </SelectOption>
-                    <SelectOption value="email">
-                      {t.cron.delivery.email}
-                    </SelectOption>
+                    {DELIVERY_OPTIONS.map((option) => (
+                      <SelectOption key={option} value={option}>
+                        {deliveryLabel(option)}
+                      </SelectOption>
+                    ))}
                   </Select>
                 </div>
               </div>
+
+              {deliver === "feishu" && (
+                <div className="grid gap-2">
+                  <Label htmlFor="cron-deliver-target">{t.cron.deliverTarget}</Label>
+                  <Input
+                    id="cron-deliver-target"
+                    placeholder={t.cron.deliverTargetPlaceholder}
+                    value={deliverTarget}
+                    onChange={(e) => setDeliverTarget(e.target.value)}
+                  />
+                </div>
+              )}
 
               <div className="flex justify-end">
                 <Button
@@ -337,6 +445,120 @@ export default function CronPage() {
                   prefix={creating ? <Spinner /> : <Plus />}
                 >
                   {creating ? t.common.creating : t.common.create}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingId && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-background/85 backdrop-blur-sm p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) cancelEdit();
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cron-edit-title"
+        >
+          <div className="relative w-full max-w-2xl border border-border bg-card shadow-2xl">
+            <Button
+              ghost
+              size="icon"
+              onClick={cancelEdit}
+              className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
+              aria-label={t.common.close}
+            >
+              <X />
+            </Button>
+
+            <div className="flex flex-col gap-4 p-6">
+              <div>
+                <H2
+                  id="cron-edit-title"
+                  variant="sm"
+                  mondwest
+                  className="tracking-wider uppercase"
+                >
+                  {t.cron.editJob}
+                </H2>
+              </div>
+
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="cron-edit-name">{t.cron.nameOptional}</Label>
+                  <Input
+                    id="cron-edit-name"
+                    placeholder={t.cron.namePlaceholder}
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="cron-edit-prompt">{t.cron.prompt}</Label>
+                  <textarea
+                    id="cron-edit-prompt"
+                    className="flex min-h-[80px] w-full border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    placeholder={t.cron.promptPlaceholder}
+                    value={editingPrompt}
+                    onChange={(e) => setEditingPrompt(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="cron-edit-schedule">{t.cron.schedule}</Label>
+                    <Input
+                      id="cron-edit-schedule"
+                      placeholder={t.cron.schedulePlaceholder}
+                      value={editingSchedule}
+                      onChange={(e) => setEditingSchedule(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="cron-edit-deliver">{t.cron.deliverTo}</Label>
+                    <Select
+                      id="cron-edit-deliver"
+                      value={editingDeliver}
+                      onValueChange={(v) => setEditingDeliver(v)}
+                    >
+                      {DELIVERY_OPTIONS.map((option) => (
+                        <SelectOption key={option} value={option}>
+                          {deliveryLabel(option)}
+                        </SelectOption>
+                      ))}
+                    </Select>
+                  </div>
+                </div>
+
+                {editingDeliver === "feishu" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="cron-edit-deliver-target">
+                      {t.cron.deliverTarget}
+                    </Label>
+                    <Input
+                      id="cron-edit-deliver-target"
+                      placeholder={t.cron.deliverTargetPlaceholder}
+                      value={editingDeliverTarget}
+                      onChange={(e) => setEditingDeliverTarget(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <Button outlined onClick={cancelEdit} disabled={savingEdit}>
+                  {t.common.cancel}
+                </Button>
+                <Button
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit}
+                  prefix={<Save />}
+                >
+                  {savingEdit ? t.common.saving : t.common.save}
                 </Button>
               </div>
             </div>
@@ -366,25 +588,25 @@ export default function CronPage() {
           const promptText = getJobPrompt(job);
           const title = getJobTitle(job);
           const hasName = Boolean(getJobName(job));
-          const deliver = asText(job.deliver);
+          const deliverValue = asText(job.deliver);
 
           return (
             <Card key={job.id}>
               <CardContent className="flex items-center gap-4 py-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm truncate">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="truncate text-sm font-medium">
                       {title}
                     </span>
                     <Badge tone={STATUS_TONE[state] ?? "secondary"}>
                       {state}
                     </Badge>
-                    {deliver && deliver !== "local" && (
-                      <Badge tone="outline">{deliver}</Badge>
+                    {deliverValue && deliverValue !== "local" && (
+                      <Badge tone="outline">{deliverValue}</Badge>
                     )}
                   </div>
                   {hasName && promptText && (
-                    <p className="text-xs text-muted-foreground truncate mb-1">
+                    <p className="mb-1 truncate text-xs text-muted-foreground">
                       {truncateText(promptText, 100)}
                     </p>
                   )}
@@ -398,24 +620,30 @@ export default function CronPage() {
                     </span>
                   </div>
                   {job.last_error && (
-                    <p className="text-xs text-destructive mt-1">
+                    <p className="mt-1 text-xs text-destructive">
                       {job.last_error}
                     </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    ghost
+                    size="icon"
+                    title={t.cron.edit}
+                    aria-label={t.cron.edit}
+                    onClick={() => startEdit(job)}
+                  >
+                    <Pencil />
+                  </Button>
+
                   <Button
                     ghost
                     size="icon"
                     title={state === "paused" ? t.cron.resume : t.cron.pause}
-                    aria-label={
-                      state === "paused" ? t.cron.resume : t.cron.pause
-                    }
+                    aria-label={state === "paused" ? t.cron.resume : t.cron.pause}
                     onClick={() => handlePauseResume(job)}
-                    className={
-                      state === "paused" ? "text-success" : "text-warning"
-                    }
+                    className={state === "paused" ? "text-success" : "text-warning"}
                   >
                     {state === "paused" ? <Play /> : <Pause />}
                   </Button>

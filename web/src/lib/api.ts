@@ -139,9 +139,15 @@ export const api = {
 
   // Cron jobs
   getCronJobs: () => fetchJSON<CronJob[]>("/api/cron/jobs"),
-  createCronJob: (job: { prompt: string; schedule: string; name?: string; deliver?: string }) =>
+  createCronJob: (job: CronJobPayload) =>
     fetchJSON<CronJob>("/api/cron/jobs", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(job),
+    }),
+  updateCronJob: (id: string, job: CronJobPayload) =>
+    fetchJSON<CronJob>(`/api/cron/jobs/${id}`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(job),
     }),
@@ -564,6 +570,13 @@ export interface CronJob {
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_error?: string | null;
+}
+
+export interface CronJobPayload {
+  prompt: string;
+  schedule: string;
+  name?: string;
+  deliver?: string;
 }
 
 export interface SkillInfo {

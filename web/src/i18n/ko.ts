@@ -202,6 +202,8 @@ export const ko: Translations = {
     confirmDeleteMessage:
       "이 작업은 일정에서 작업을 제거합니다. 되돌릴 수 없습니다.",
     confirmDeleteTitle: "예약된 작업을 삭제하시겠습니까?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "새 Cron 작업",
     nameOptional: "이름 (선택 사항)",
     namePlaceholder: "예: 일일 요약",
@@ -210,6 +212,8 @@ export const ko: Translations = {
     schedule: "스케줄 (cron 표현식)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "전달 대상",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "예약된 작업",
     noJobs: "구성된 cron 작업이 없습니다. 위에서 하나 만드세요.",
     last: "마지막",
@@ -223,6 +227,7 @@ export const ko: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

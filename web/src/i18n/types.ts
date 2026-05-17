@@ -222,6 +222,8 @@ export interface Translations {
   cron: {
     confirmDeleteMessage: string;
     confirmDeleteTitle: string;
+    edit: string;
+    editJob: string;
     newJob: string;
     nameOptional: string;
     namePlaceholder: string;
@@ -230,6 +232,8 @@ export interface Translations {
     schedule: string;
     schedulePlaceholder: string;
     deliverTo: string;
+    deliverTarget: string;
+    deliverTargetPlaceholder: string;
     scheduledJobs: string;
     noJobs: string;
     last: string;
@@ -243,6 +247,7 @@ export interface Translations {
       discord: string;
       slack: string;
       email: string;
+      feishu: string;
     };
   };
 

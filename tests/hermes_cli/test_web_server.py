@@ -591,6 +591,50 @@ class TestNewEndpoints:
         resp = self.client.get("/api/cron/jobs/nonexistent-id")
         assert resp.status_code == 404
 
+    def test_cron_update_parses_schedule_and_writes_explicit_fields(self, monkeypatch):
+        import cron.jobs as cron_jobs
+
+        captured = {}
+
+        def fake_update_job(job_id, updates):
+            captured["job_id"] = job_id
+            captured["updates"] = updates
+            return {"id": job_id, **updates, "state": "scheduled", "enabled": True}
+
+        monkeypatch.setattr(cron_jobs, "update_job", fake_update_job)
+
+        resp = self.client.put(
+            "/api/cron/jobs/job-123",
+            json={
+                "prompt": "updated prompt",
+                "schedule": "every 15m",
+                "name": "updated name",
+                "deliver": "feishu:oc_123",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert captured["job_id"] == "job-123"
+        assert captured["updates"]["prompt"] == "updated prompt"
+        assert captured["updates"]["name"] == "updated name"
+        assert captured["updates"]["deliver"] == "feishu:oc_123"
+        assert captured["updates"]["schedule_display"] == "every 15m"
+        assert captured["updates"]["schedule"]["kind"] == "interval"
+        assert captured["updates"]["schedule"]["minutes"] == 15
+
+    def test_cron_update_invalid_schedule_returns_400(self):
+        resp = self.client.put(
+            "/api/cron/jobs/job-123",
+            json={
+                "prompt": "updated prompt",
+                "schedule": "not a schedule",
+                "name": "updated name",
+                "deliver": "local",
+            },
+        )
+
+        assert resp.status_code == 400
+
     # --- Profiles ---
 
     def test_profiles_list_includes_default(self):

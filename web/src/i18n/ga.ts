@@ -202,6 +202,8 @@ export const ga: Translations = {
     confirmDeleteMessage:
       "Baineann sé seo an post ón sceideal. Ní féidir é seo a chealú.",
     confirmDeleteTitle: "Scrios an post sceidealta?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Post Cron Nua",
     nameOptional: "Ainm (roghnach)",
     namePlaceholder: "m.sh. Achoimre laethúil",
@@ -210,6 +212,8 @@ export const ga: Translations = {
     schedule: "Sceideal (slonn cron)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Seachadadh chuig",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Poist sceidealta",
     noJobs: "Níl poist cron cumraithe. Cruthaigh ceann thuas.",
     last: "Deireanach",
@@ -223,6 +227,7 @@ export const ga: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

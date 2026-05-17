@@ -202,6 +202,8 @@ export const de: Translations = {
     confirmDeleteMessage:
       "Damit wird die Aufgabe aus dem Zeitplan entfernt. Dies kann nicht rückgängig gemacht werden.",
     confirmDeleteTitle: "Geplante Aufgabe löschen?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Neue Cron-Aufgabe",
     nameOptional: "Name (optional)",
     namePlaceholder: "z. B. Tägliche Zusammenfassung",
@@ -210,6 +212,8 @@ export const de: Translations = {
     schedule: "Zeitplan (Cron-Ausdruck)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Zustellen an",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Geplante Aufgaben",
     noJobs: "Keine Cron-Aufgaben konfiguriert. Erstelle oben eine.",
     last: "Zuletzt",
@@ -223,6 +227,7 @@ export const de: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

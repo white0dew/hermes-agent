@@ -202,6 +202,8 @@ export const tr: Translations = {
     confirmDeleteMessage:
       "Bu, görevi zamanlamadan kaldırır. Bu işlem geri alınamaz.",
     confirmDeleteTitle: "Zamanlanmış görev silinsin mi?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Yeni Cron Görevi",
     nameOptional: "Ad (isteğe bağlı)",
     namePlaceholder: "örn. Günlük özet",
@@ -210,6 +212,8 @@ export const tr: Translations = {
     schedule: "Zamanlama (cron ifadesi)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Şuraya teslim et",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Zamanlanmış Görevler",
     noJobs: "Yapılandırılmış cron görevi yok. Yukarıdan bir tane oluşturun.",
     last: "Son",
@@ -223,6 +227,7 @@ export const tr: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

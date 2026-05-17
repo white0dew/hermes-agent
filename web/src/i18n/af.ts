@@ -202,6 +202,8 @@ export const af: Translations = {
     confirmDeleteMessage:
       "Dit verwyder die taak van die skedule. Dit kan nie ongedaan gemaak word nie.",
     confirmDeleteTitle: "Skrap geskeduleerde taak?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Nuwe Cron-taak",
     nameOptional: "Naam (opsioneel)",
     namePlaceholder: "bv. Daaglikse opsomming",
@@ -210,6 +212,8 @@ export const af: Translations = {
     schedule: "Skedule (cron-uitdrukking)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Lewer aan",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Geskeduleerde Take",
     noJobs: "Geen cron-take gekonfigureer nie. Skep een hierbo.",
     last: "Laaste",
@@ -223,6 +227,7 @@ export const af: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

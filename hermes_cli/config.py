@@ -1199,6 +1199,10 @@ DEFAULT_CONFIG = {
         # negatives (goal actually done but judge says continue) and
         # unbounded model spend on fuzzy / unachievable goals.
         "max_turns": 20,
+        # When enabled, every real user message is mirrored into a standing
+        # auto-managed /goal unless an explicit manual goal is already active.
+        # Continuation still uses the shared goal loop and judge.
+        "auto_goal": False,
     },
 
     # Skills — external skill directories for sharing skills across tools/agents.

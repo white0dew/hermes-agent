@@ -202,6 +202,8 @@ export const zhHant: Translations = {
     confirmDeleteMessage:
       "將從排程移除此任務，此操作無法復原。",
     confirmDeleteTitle: "刪除排程任務？",
+    edit: "編輯",
+    editJob: "編輯排程任務",
     newJob: "新增排程任務",
     nameOptional: "名稱（選填）",
     namePlaceholder: "例如：每日摘要",
@@ -210,6 +212,8 @@ export const zhHant: Translations = {
     schedule: "排程（cron 運算式）",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "傳送至",
+    deliverTarget: "投遞目標",
+    deliverTargetPlaceholder: "chat_id / open_id / 群組 id",
     scheduledJobs: "已排程任務",
     noJobs: "尚未設定排程任務。請於上方建立。",
     last: "上次",
@@ -223,6 +227,7 @@ export const zhHant: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

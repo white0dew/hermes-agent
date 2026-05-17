@@ -7,10 +7,13 @@ Handles: hermes gateway [run|start|stop|restart|status|install|uninstall|setup]
 import asyncio
 import os
 import shutil
+import shlex
+import socket
 import signal
 import subprocess
 import sys
 import textwrap
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1254,6 +1257,8 @@ def _windows_gateway_should_absorb_console_controls() -> bool:
 
 _SERVICE_BASE = "hermes-gateway"
 SERVICE_DESCRIPTION = "Hermes Agent Gateway - Messaging Platform Integration"
+DEFAULT_DASHBOARD_HOST = "127.0.0.1"
+DEFAULT_DASHBOARD_PORT = 9119
 
 
 def _profile_suffix() -> str:
@@ -1322,6 +1327,226 @@ def get_service_name() -> str:
     if not suffix:
         return _SERVICE_BASE
     return f"{_SERVICE_BASE}-{suffix}"
+
+
+def _dashboard_autostart_log_path() -> Path:
+    log_dir = get_hermes_home() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "dashboard-autostart.log"
+
+
+def _dashboard_autostart_command() -> list[str]:
+    cmd = [get_python_path(), "-m", "hermes_cli.main"]
+    profile_arg = _profile_arg()
+    if profile_arg:
+        cmd.extend(profile_arg.split())
+    cmd.extend(
+        [
+            "dashboard",
+            "--no-open",
+            "--host",
+            DEFAULT_DASHBOARD_HOST,
+            "--port",
+            str(DEFAULT_DASHBOARD_PORT),
+        ]
+    )
+    return cmd
+
+
+def _iter_dashboard_processes() -> list[tuple[int, str]]:
+    patterns = (
+        "hermes dashboard",
+        "hermes_cli.main dashboard",
+        "hermes_cli/main.py dashboard",
+    )
+    processes: list[tuple[int, str]] = []
+    self_pid = os.getpid()
+
+    try:
+        if is_windows():
+            result = subprocess.run(
+                ["wmic", "process", "get", "ProcessId,CommandLine", "/FORMAT:LIST"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=10,
+            )
+            if result.returncode != 0 or result.stdout is None:
+                return []
+            current_cmd = ""
+            for line in result.stdout.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("CommandLine="):
+                    current_cmd = stripped[len("CommandLine="):]
+                elif stripped.startswith("ProcessId="):
+                    pid_str = stripped[len("ProcessId="):]
+                    try:
+                        pid = int(pid_str)
+                    except ValueError:
+                        current_cmd = ""
+                        continue
+                    if pid != self_pid and any(p in current_cmd for p in patterns):
+                        processes.append((pid, current_cmd))
+                    current_cmd = ""
+            return processes
+
+        result = subprocess.run(
+            ["ps", "-A", "-o", "pid=,command="],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if not stripped or "grep" in stripped:
+                continue
+            parts = stripped.split(None, 1)
+            if len(parts) != 2:
+                continue
+            try:
+                pid = int(parts[0])
+            except ValueError:
+                continue
+            command = parts[1]
+            if pid != self_pid and any(p in command for p in patterns):
+                processes.append((pid, command))
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
+
+    return processes
+
+
+def _dashboard_host_port_from_command(command: str) -> tuple[str, int]:
+    host = DEFAULT_DASHBOARD_HOST
+    port = DEFAULT_DASHBOARD_PORT
+    try:
+        tokens = shlex.split(command, posix=not is_windows())
+    except ValueError:
+        tokens = command.split()
+
+    for index, token in enumerate(tokens):
+        if token == "--host" and index + 1 < len(tokens):
+            host = tokens[index + 1].strip()
+        elif token.startswith("--host="):
+            host = token.split("=", 1)[1].strip()
+        elif token == "--port" and index + 1 < len(tokens):
+            try:
+                port = int(tokens[index + 1].strip())
+            except ValueError:
+                pass
+        elif token.startswith("--port="):
+            try:
+                port = int(token.split("=", 1)[1].strip())
+            except ValueError:
+                pass
+
+    return host or DEFAULT_DASHBOARD_HOST, port
+
+
+def _find_default_dashboard_pids() -> list[int]:
+    pids: list[int] = []
+    for pid, command in _iter_dashboard_processes():
+        host, port = _dashboard_host_port_from_command(command)
+        if host in {DEFAULT_DASHBOARD_HOST, "localhost"} and port == DEFAULT_DASHBOARD_PORT:
+            pids.append(pid)
+    return pids
+
+
+def _stop_dashboard_processes_for_autostart(pids: list[int]) -> None:
+    if not pids:
+        return
+
+    deadline = time.monotonic() + 3.0
+    pending = list(dict.fromkeys(pid for pid in pids if pid > 0))
+
+    for pid in pending:
+        try:
+            terminate_pid(pid, force=False)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+    while pending and time.monotonic() < deadline:
+        still_pending: list[int] = []
+        for pid in pending:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            except (PermissionError, OSError):
+                still_pending.append(pid)
+            else:
+                still_pending.append(pid)
+        pending = still_pending
+        if pending:
+            time.sleep(0.1)
+
+    for pid in pending:
+        try:
+            terminate_pid(pid, force=True)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+
+def _wait_for_dashboard_ready(
+    host: str = DEFAULT_DASHBOARD_HOST,
+    port: int = DEFAULT_DASHBOARD_PORT,
+    timeout: float = 8.0,
+) -> bool:
+    deadline = time.monotonic() + max(timeout, 0.1)
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.2)
+    return False
+
+
+def _restart_default_dashboard_after_gateway_restart(system: bool = False) -> bool:
+    """Restart the built-in dashboard in the background after gateway restart.
+
+    This only manages the default local dashboard target (127.0.0.1:9119) so
+    manual dashboards on other hosts/ports are left alone.
+    """
+    if system:
+        return False
+
+    try:
+        _stop_dashboard_processes_for_autostart(_find_default_dashboard_pids())
+        log_path = _dashboard_autostart_log_path()
+        env = os.environ.copy()
+        env["HERMES_HOME"] = str(get_hermes_home().resolve())
+        popen_kwargs = {
+            "cwd": str(PROJECT_ROOT),
+            "env": env,
+            "stdin": subprocess.DEVNULL,
+            "stdout": None,
+            "stderr": subprocess.STDOUT,
+        }
+
+        with open(log_path, "ab") as log_fp:
+            popen_kwargs["stdout"] = log_fp
+            if is_windows():
+                popen_kwargs["creationflags"] = (
+                    getattr(subprocess, "DETACHED_PROCESS", 0)
+                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                )
+            else:
+                popen_kwargs["start_new_session"] = True
+            subprocess.Popen(_dashboard_autostart_command(), **popen_kwargs)
+
+        print(f"Hermes Web UI → http://{DEFAULT_DASHBOARD_HOST}:{DEFAULT_DASHBOARD_PORT}")
+        if _wait_for_dashboard_ready():
+            print(f"  Dashboard restarted in background. Log: {log_path}")
+        else:
+            print(f"  Dashboard is starting in background. Log: {log_path}")
+        return True
+    except Exception as e:
+        print_warning(f"Dashboard auto-restart failed: {e}")
+        return False
 
 
 
@@ -2591,6 +2816,7 @@ def systemd_restart(system: bool = False):
                 timeout=90,
             )
             if _wait_for_systemd_service_restart(system=system, previous_pid=pid):
+                _restart_default_dashboard_after_gateway_restart(system=system)
                 return
             if _systemd_service_is_start_limited(system=system):
                 return
@@ -2619,7 +2845,8 @@ def systemd_restart(system: bool = False):
                 "check `hermes gateway status` or logs for final state."
             )
             return
-        _wait_for_systemd_service_restart(system=system, previous_pid=pid)
+        if _wait_for_systemd_service_restart(system=system, previous_pid=pid):
+            _restart_default_dashboard_after_gateway_restart(system=system)
         return
 
     if _recover_pending_systemd_restart(system=system, previous_pid=pid):
@@ -2645,7 +2872,8 @@ def systemd_restart(system: bool = False):
             "check `hermes gateway status` or logs for final state."
         )
         return
-    _wait_for_systemd_service_restart(system=system, previous_pid=pid)
+    if _wait_for_systemd_service_restart(system=system, previous_pid=pid):
+        _restart_default_dashboard_after_gateway_restart(system=system)
 
 
 
@@ -3032,6 +3260,7 @@ def launchd_restart():
                     print(f"⚠ Gateway drain timed out after {drain_timeout:.0f}s — forcing launchd restart")
         subprocess.run(["launchctl", "kickstart", "-k", target], check=True, timeout=90)
         print("✓ Service restarted")
+        _restart_default_dashboard_after_gateway_restart()
     except subprocess.CalledProcessError as e:
         if e.returncode not in {3, 113}:
             raise
@@ -3041,6 +3270,7 @@ def launchd_restart():
         subprocess.run(["launchctl", "bootstrap", _launchd_domain(), str(plist_path)], check=True, timeout=30)
         subprocess.run(["launchctl", "kickstart", target], check=True, timeout=30)
         print("✓ Service restarted")
+        _restart_default_dashboard_after_gateway_restart()
 
 def launchd_status(deep: bool = False):
     plist_path = get_launchd_plist_path()
@@ -5263,8 +5493,10 @@ def _gateway_command_inner(args):
             print("Starting gateway...")
             if supports_systemd_services() and (get_systemd_unit_path(system=False).exists() or get_systemd_unit_path(system=True).exists()):
                 systemd_start(system=system)
+                _restart_default_dashboard_after_gateway_restart(system=system)
             elif is_macos() and get_launchd_plist_path().exists():
                 launchd_start()
+                _restart_default_dashboard_after_gateway_restart()
             elif is_windows():
                 from hermes_cli import gateway_windows
                 if gateway_windows.is_installed():

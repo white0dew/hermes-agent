@@ -202,6 +202,8 @@ export const es: Translations = {
     confirmDeleteMessage:
       "Esto elimina la tarea de la programación. No se puede deshacer.",
     confirmDeleteTitle: "¿Eliminar tarea programada?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Nueva tarea Cron",
     nameOptional: "Nombre (opcional)",
     namePlaceholder: "p. ej. Resumen diario",
@@ -210,6 +212,8 @@ export const es: Translations = {
     schedule: "Programación (expresión cron)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Entregar a",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Tareas programadas",
     noJobs: "No hay tareas cron configuradas. Crea una arriba.",
     last: "Última",
@@ -223,6 +227,7 @@ export const es: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

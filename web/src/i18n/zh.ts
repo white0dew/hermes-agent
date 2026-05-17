@@ -199,6 +199,8 @@ export const zh: Translations = {
   cron: {
     confirmDeleteMessage: "将从此计划移除该任务，此操作无法撤销。",
     confirmDeleteTitle: "删除定时任务？",
+    edit: "编辑",
+    editJob: "编辑定时任务",
     newJob: "新建定时任务",
     nameOptional: "名称（可选）",
     namePlaceholder: "例如：每日总结",
@@ -207,6 +209,8 @@ export const zh: Translations = {
     schedule: "调度表达式（cron）",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "投递至",
+    deliverTarget: "投递目标",
+    deliverTargetPlaceholder: "chat_id / open_id / 群组 id",
     scheduledJobs: "已调度任务",
     noJobs: "暂无定时任务。在上方创建一个。",
     last: "上次",
@@ -220,6 +224,7 @@ export const zh: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "邮件",
+      feishu: "飞书",
     },
   },
 

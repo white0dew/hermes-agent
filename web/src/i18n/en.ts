@@ -202,6 +202,8 @@ export const en: Translations = {
     confirmDeleteMessage:
       "This removes the job from the schedule. This cannot be undone.",
     confirmDeleteTitle: "Delete scheduled job?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "New Cron Job",
     nameOptional: "Name (optional)",
     namePlaceholder: "e.g. Daily summary",
@@ -210,6 +212,8 @@ export const en: Translations = {
     schedule: "Schedule (cron expression)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Deliver to",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Scheduled Jobs",
     noJobs: "No cron jobs configured. Create one above.",
     last: "Last",
@@ -223,6 +227,7 @@ export const en: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

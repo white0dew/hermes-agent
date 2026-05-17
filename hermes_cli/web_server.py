@@ -2527,7 +2527,10 @@ class CronJobCreate(BaseModel):
 
 
 class CronJobUpdate(BaseModel):
-    updates: dict
+    prompt: str
+    schedule: str
+    name: str = ""
+    deliver: str = "local"
 
 
 @app.get("/api/cron/jobs")
@@ -2559,11 +2562,24 @@ async def create_cron_job(body: CronJobCreate):
 
 @app.put("/api/cron/jobs/{job_id}")
 async def update_cron_job(job_id: str, body: CronJobUpdate):
-    from cron.jobs import update_job
-    job = update_job(job_id, body.updates)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    from cron.jobs import parse_schedule, update_job
+    try:
+        updates = {
+            "prompt": body.prompt,
+            "schedule": parse_schedule(body.schedule),
+            "schedule_display": body.schedule.strip(),
+            "name": body.name,
+            "deliver": body.deliver,
+        }
+        job = update_job(job_id, updates)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return job
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log.exception("PUT /api/cron/jobs failed")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/cron/jobs/{job_id}/pause")

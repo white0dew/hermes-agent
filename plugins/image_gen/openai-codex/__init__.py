@@ -68,6 +68,21 @@ _SIZES = {
     "square": "1024x1024",
     "portrait": "1024x1536",
 }
+_RESPONSES_IMAGE_ALLOWED_SIZES = frozenset(_SIZES.values()) | {"auto"}
+_RESPONSES_IMAGE_TOOL_FIELDS = {
+    "type",
+    "action",
+    "background",
+    "input_fidelity",
+    "input_image_mask",
+    "model",
+    "moderation",
+    "output_compression",
+    "output_format",
+    "partial_images",
+    "quality",
+    "size",
+}
 
 # Codex Responses surface used for the request. The chat model itself is only
 # the host that calls the ``image_generation`` tool; the actual image work is
@@ -78,6 +93,47 @@ _CODEX_INSTRUCTIONS = (
     "You are an assistant that must fulfill image generation requests by "
     "using the image_generation tool when provided."
 )
+
+
+def _closest_responses_image_size(size: Any) -> str:
+    """Return a Responses image_generation size accepted by the OpenAI SDK."""
+    if isinstance(size, str):
+        value = size.strip()
+        if value in _RESPONSES_IMAGE_ALLOWED_SIZES:
+            return value
+
+        try:
+            width_s, height_s = value.lower().split("x", 1)
+            width = float(width_s)
+            height = float(height_s)
+            if width > 0 and height > 0:
+                ratio = width / height
+                if ratio > 1.5:
+                    return _SIZES["landscape"]
+                if ratio < 0.67:
+                    return _SIZES["portrait"]
+        except Exception:
+            pass
+
+    return _SIZES["square"]
+
+
+def _responses_image_generation_tool(**tool: Any) -> Dict[str, Any]:
+    """Build a warning-free Responses image_generation tool payload.
+
+    The OpenAI Python SDK validates ``responses.tools`` against a typed union
+    before serializing. Unsupported image sizes (for example ``864x1536``) or
+    Images-API-only fields such as ``n`` trigger noisy Pydantic warnings even
+    when the request can otherwise proceed.
+    """
+    normalized: Dict[str, Any] = {
+        key: value
+        for key, value in tool.items()
+        if key in _RESPONSES_IMAGE_TOOL_FIELDS and value is not None
+    }
+    normalized["type"] = "image_generation"
+    normalized["size"] = _closest_responses_image_size(normalized.get("size"))
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -174,15 +230,16 @@ def _collect_image_b64(client: Any, *, prompt: str, size: str, quality: str) -> 
             "role": "user",
             "content": [{"type": "input_text", "text": prompt}],
         }],
-        tools=[{
-            "type": "image_generation",
-            "model": API_MODEL,
-            "size": size,
-            "quality": quality,
-            "output_format": "png",
-            "background": "opaque",
-            "partial_images": 1,
-        }],
+        tools=[
+            _responses_image_generation_tool(
+                model=API_MODEL,
+                size=size,
+                quality=quality,
+                output_format="png",
+                background="opaque",
+                partial_images=1,
+            )
+        ],
         tool_choice={
             "type": "allowed_tools",
             "mode": "required",

@@ -8556,6 +8556,34 @@ class HermesCLI:
         self._goal_manager = mgr
         return mgr
 
+    def _sync_auto_goal_for_message(self, message) -> None:
+        """Mirror real user turns into an auto-managed standing goal."""
+        try:
+            from hermes_cli.goals import (
+                auto_goal_enabled,
+                goal_text_from_message,
+                should_skip_auto_goal_sync,
+            )
+        except Exception as exc:
+            logging.debug("auto-goal sync unavailable: %s", exc)
+            return
+
+        if not auto_goal_enabled():
+            return
+
+        mgr = self._get_goal_manager()
+        if mgr is None:
+            return
+
+        goal_text = goal_text_from_message(message)
+        if should_skip_auto_goal_sync(goal_text, mgr):
+            return
+
+        try:
+            mgr.ensure_auto_goal(goal_text)
+        except Exception as exc:
+            logging.debug("auto-goal sync failed: %s", exc)
+
     def _handle_goal_command(self, cmd: str) -> None:
         """Dispatch /goal subcommands: set / status / pause / resume / clear."""
         parts = (cmd or "").strip().split(None, 1)
@@ -10757,6 +10785,11 @@ class HermesCLI:
         # this to True. Early returns (credential refresh failure, etc.)
         # leave it False, which is correct — those aren't user interrupts.
         self._last_turn_interrupted = False
+
+        try:
+            self._sync_auto_goal_for_message(message)
+        except Exception as exc:
+            logging.debug("auto-goal pre-turn sync failed: %s", exc)
 
         # Refresh provider credentials if needed (handles key rotation transparently)
         if not self._ensure_runtime_credentials():

@@ -60,3 +60,84 @@ async def test_gateway_goal_uses_goals_max_turns_from_full_config(tmp_path, monk
         assert state.max_turns == 7
     finally:
         goals._DB_CACHE.clear()
+
+
+def test_gateway_auto_goal_sync_creates_auto_goal(tmp_path, monkeypatch):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    (home / "config.yaml").write_text(
+        "goals:\n  max_turns: 7\n  auto_goal: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    goals._DB_CACHE.clear()
+
+    class _Entry:
+        session_id = "sid-gateway-auto-goal-sync"
+
+    runner = object.__new__(GatewayRunner)
+    runner.config = GatewayConfig(
+        platforms={Platform.DISCORD: PlatformConfig(enabled=True, token="token")}
+    )
+    runner.session_store = _FakeSessionStore()
+
+    event = MessageEvent(
+        text="ship the benchmark",
+        message_type=MessageType.TEXT,
+        source=SessionSource(
+            platform=Platform.DISCORD,
+            chat_id="chat-goal-config",
+            chat_type="channel",
+            user_id="user-goal-config",
+        ),
+        message_id="msg-goal-config",
+    )
+
+    try:
+        runner._sync_auto_goal_for_event(event, _Entry(), "ship the benchmark")
+        state = goals.GoalManager(_Entry.session_id).state
+        assert state is not None
+        assert state.goal == "ship the benchmark"
+        assert state.source == goals.AUTO_GOAL_SOURCE
+        assert state.max_turns == 7
+    finally:
+        goals._DB_CACHE.clear()
+
+
+def test_gateway_auto_goal_sync_skips_internal_event(tmp_path, monkeypatch):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    (home / "config.yaml").write_text(
+        "goals:\n  auto_goal: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    goals._DB_CACHE.clear()
+
+    class _Entry:
+        session_id = "sid-gateway-auto-goal-internal"
+
+    runner = object.__new__(GatewayRunner)
+    runner.config = GatewayConfig(
+        platforms={Platform.DISCORD: PlatformConfig(enabled=True, token="token")}
+    )
+    runner.session_store = _FakeSessionStore()
+
+    event = MessageEvent(
+        text="synthetic continuation",
+        message_type=MessageType.TEXT,
+        source=SessionSource(
+            platform=Platform.DISCORD,
+            chat_id="chat-goal-config",
+            chat_type="channel",
+            user_id="user-goal-config",
+        ),
+        message_id="msg-goal-config",
+        internal=True,
+    )
+
+    try:
+        runner._sync_auto_goal_for_event(event, _Entry(), "synthetic continuation")
+        assert goals.GoalManager(_Entry.session_id).state is None
+    finally:
+        goals._DB_CACHE.clear()

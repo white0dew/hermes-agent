@@ -130,6 +130,9 @@ JUDGE_USER_PROMPT_WITH_SUBGOALS_TEMPLATE = (
     "Is the goal AND every additional criterion satisfied?"
 )
 
+AUTO_GOAL_SOURCE = "auto_goal"
+MANUAL_SOURCE = "manual"
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Dataclass
@@ -141,6 +144,7 @@ class GoalState:
     """Serializable goal state stored per session."""
 
     goal: str
+    source: str = MANUAL_SOURCE          # manual | auto_goal
     status: str = "active"          # active | paused | done | cleared
     turns_used: int = 0
     max_turns: int = DEFAULT_MAX_TURNS
@@ -169,6 +173,7 @@ class GoalState:
             subgoals = [str(s).strip() for s in raw_subgoals if str(s).strip()]
         return cls(
             goal=data.get("goal", ""),
+            source=data.get("source", MANUAL_SOURCE) or MANUAL_SOURCE,
             status=data.get("status", "active"),
             turns_used=int(data.get("turns_used", 0) or 0),
             max_turns=int(data.get("max_turns", DEFAULT_MAX_TURNS) or DEFAULT_MAX_TURNS),
@@ -290,6 +295,62 @@ def _truncate(text: str, limit: int) -> str:
 
 
 _JSON_OBJECT_RE = re.compile(r"\{.*?\}", re.DOTALL)
+
+
+def _load_goals_config() -> Dict[str, Any]:
+    """Best-effort load of the ``goals`` config block."""
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = load_config() or {}
+    except Exception as exc:
+        logger.debug("goal config load failed: %s", exc)
+        return {}
+    goals_cfg = cfg.get("goals") or {}
+    return goals_cfg if isinstance(goals_cfg, dict) else {}
+
+
+def auto_goal_enabled() -> bool:
+    """Return whether auto-goal mirroring is enabled in config."""
+    return bool(_load_goals_config().get("auto_goal", False))
+
+
+def goal_text_from_message(message: Any) -> str:
+    """Extract human-visible goal text from a string or content-parts message."""
+    if isinstance(message, str):
+        return message.strip()
+    if isinstance(message, list):
+        parts = []
+        for item in message:
+            if isinstance(item, str) and item.strip():
+                parts.append(item.strip())
+            elif isinstance(item, dict):
+                for key in ("text", "content", "input_text", "output_text"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        parts.append(value.strip())
+                        break
+        return "\n".join(parts).strip()
+    return ""
+
+
+def should_skip_auto_goal_sync(goal_text: str, manager: Optional["GoalManager"] = None) -> bool:
+    """Return True when the text is synthetic and must not reset auto-goals."""
+    text = str(goal_text or "").strip()
+    if not text:
+        return True
+    if text.startswith("[IMPORTANT:"):
+        return True
+    if text.startswith("[Continuing toward your standing goal]"):
+        return True
+    if manager is not None:
+        try:
+            continuation = manager.next_continuation_prompt() or ""
+        except Exception:
+            continuation = ""
+        if continuation and text == continuation:
+            return True
+    return False
 
 
 def _goal_judge_max_tokens() -> int:
@@ -514,11 +575,21 @@ class GoalManager:
     # --- mutation -----------------------------------------------------
 
     def set(self, goal: str, *, max_turns: Optional[int] = None) -> GoalState:
+        return self._set(goal, max_turns=max_turns, source=MANUAL_SOURCE)
+
+    def _set(
+        self,
+        goal: str,
+        *,
+        max_turns: Optional[int] = None,
+        source: str = MANUAL_SOURCE,
+    ) -> GoalState:
         goal = (goal or "").strip()
         if not goal:
             raise ValueError("goal text is empty")
         state = GoalState(
             goal=goal,
+            source=source,
             status="active",
             turns_used=0,
             max_turns=int(max_turns) if max_turns else self.default_max_turns,
@@ -528,6 +599,38 @@ class GoalManager:
         self._state = state
         save_goal(self.session_id, state)
         return state
+
+    def ensure_auto_goal(
+        self,
+        goal: str,
+        *,
+        max_turns: Optional[int] = None,
+    ) -> Tuple[Optional[GoalState], bool]:
+        """Ensure the latest real user turn is mirrored as an auto goal.
+
+        Manual goals always win. Any missing or previously auto-managed goal is
+        replaced with the latest real user message.
+        """
+        goal = (goal or "").strip()
+        if not goal:
+            return self._state, False
+
+        state = self._state
+        if (
+            state is not None
+            and state.status in ("active", "paused")
+            and state.source != AUTO_GOAL_SOURCE
+        ):
+            return state, False
+        if (
+            state is not None
+            and state.source == AUTO_GOAL_SOURCE
+            and state.status == "active"
+            and state.goal == goal
+        ):
+            return state, False
+
+        return self._set(goal, max_turns=max_turns, source=AUTO_GOAL_SOURCE), True
 
     def pause(self, reason: str = "user-paused") -> Optional[GoalState]:
         if not self._state:
@@ -742,6 +845,7 @@ class GoalManager:
 
 
 __all__ = [
+    "AUTO_GOAL_SOURCE",
     "GoalState",
     "GoalManager",
     "CONTINUATION_PROMPT_TEMPLATE",
@@ -749,8 +853,12 @@ __all__ = [
     "JUDGE_USER_PROMPT_TEMPLATE",
     "JUDGE_USER_PROMPT_WITH_SUBGOALS_TEMPLATE",
     "DEFAULT_MAX_TURNS",
+    "MANUAL_SOURCE",
+    "auto_goal_enabled",
+    "goal_text_from_message",
     "load_goal",
     "save_goal",
     "clear_goal",
     "judge_goal",
+    "should_skip_auto_goal_sync",
 ]

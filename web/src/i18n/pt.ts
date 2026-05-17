@@ -202,6 +202,8 @@ export const pt: Translations = {
     confirmDeleteMessage:
       "Esta ação remove a tarefa do agendamento. Não é possível anular.",
     confirmDeleteTitle: "Eliminar tarefa agendada?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Nova tarefa cron",
     nameOptional: "Nome (opcional)",
     namePlaceholder: "ex: Resumo diário",
@@ -210,6 +212,8 @@ export const pt: Translations = {
     schedule: "Agendamento (expressão cron)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Entregar a",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Tarefas agendadas",
     noJobs: "Sem tarefas cron configuradas. Crie uma acima.",
     last: "Última",
@@ -223,6 +227,7 @@ export const pt: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

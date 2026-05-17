@@ -678,6 +678,37 @@ def _load_cfg() -> dict:
     return {}
 
 
+def _sync_auto_goal_for_prompt(session_key: str, prompt: Any) -> None:
+    """Mirror real TUI user turns into an auto-managed standing goal."""
+    goals_cfg = _load_cfg().get("goals") or {}
+    if not bool(goals_cfg.get("auto_goal", False)):
+        return
+
+    try:
+        from hermes_cli.goals import (
+            GoalManager,
+            goal_text_from_message,
+            should_skip_auto_goal_sync,
+        )
+    except Exception as exc:
+        logger.debug("auto-goal sync unavailable: %s", exc)
+        return
+
+    if not session_key:
+        return
+
+    goal_max_turns = int(goals_cfg.get("max_turns", 20) or 20)
+    goal_mgr = GoalManager(session_id=session_key, default_max_turns=goal_max_turns)
+    goal_text = goal_text_from_message(prompt)
+    if should_skip_auto_goal_sync(goal_text, goal_mgr):
+        return
+
+    try:
+        goal_mgr.ensure_auto_goal(goal_text)
+    except Exception as exc:
+        logger.debug("auto-goal sync failed: %s", exc)
+
+
 def _save_cfg(cfg: dict):
     global _cfg_cache, _cfg_mtime, _cfg_path
     import yaml
@@ -3186,6 +3217,11 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     )
                     return
                 prompt = ctx.message
+
+            try:
+                _sync_auto_goal_for_prompt(session.get("session_key") or "", prompt)
+            except Exception as _auto_goal_exc:
+                logger.debug("auto-goal pre-turn sync failed: %s", _auto_goal_exc)
 
             # Decide image routing per-turn based on active provider/model.
             # "native" → pass pixels to the main model as OpenAI-style content

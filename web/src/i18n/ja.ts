@@ -202,6 +202,8 @@ export const ja: Translations = {
     confirmDeleteMessage:
       "ジョブをスケジュールから削除します。この操作は取り消せません。",
     confirmDeleteTitle: "スケジュールされたジョブを削除しますか？",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "新しい Cron ジョブ",
     nameOptional: "名前 (任意)",
     namePlaceholder: "例: 日次サマリー",
@@ -210,6 +212,8 @@ export const ja: Translations = {
     schedule: "スケジュール (cron 式)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "配信先",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "スケジュール済みジョブ",
     noJobs: "Cron ジョブが設定されていません。上で作成してください。",
     last: "前回",
@@ -223,6 +227,7 @@ export const ja: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

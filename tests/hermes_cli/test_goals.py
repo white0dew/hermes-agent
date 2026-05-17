@@ -252,6 +252,42 @@ class TestGoalManager:
         assert mgr2.state.goal == "do the thing"
         assert mgr2.is_active()
 
+    def test_ensure_auto_goal_creates_goal(self, hermes_home):
+        from hermes_cli.goals import AUTO_GOAL_SOURCE, GoalManager
+
+        mgr = GoalManager(session_id="auto-goal-sid-1")
+        state, changed = mgr.ensure_auto_goal("follow up on the issue")
+
+        assert changed is True
+        assert state is not None
+        assert state.goal == "follow up on the issue"
+        assert state.source == AUTO_GOAL_SOURCE
+        assert state.status == "active"
+
+    def test_ensure_auto_goal_updates_existing_auto_goal(self, hermes_home):
+        from hermes_cli.goals import AUTO_GOAL_SOURCE, GoalManager
+
+        mgr = GoalManager(session_id="auto-goal-sid-2")
+        mgr.ensure_auto_goal("first prompt")
+        state, changed = mgr.ensure_auto_goal("second prompt")
+
+        assert changed is True
+        assert state is not None
+        assert state.goal == "second prompt"
+        assert state.source == AUTO_GOAL_SOURCE
+
+    def test_ensure_auto_goal_does_not_override_manual_goal(self, hermes_home):
+        from hermes_cli.goals import GoalManager, MANUAL_SOURCE
+
+        mgr = GoalManager(session_id="auto-goal-sid-3")
+        mgr.set("manual standing goal")
+        state, changed = mgr.ensure_auto_goal("latest user message")
+
+        assert changed is False
+        assert state is not None
+        assert state.goal == "manual standing goal"
+        assert state.source == MANUAL_SOURCE
+
     def test_evaluate_after_turn_done(self, hermes_home):
         """Judge says done → status=done, no continuation."""
         from hermes_cli import goals
@@ -356,6 +392,30 @@ def test_goal_command_dispatches_in_cli_registry_helpers():
     assert "/goal" in COMMANDS
     session_cmds = COMMANDS_BY_CATEGORY.get("Session", {})
     assert "/goal" in session_cmds
+
+
+def test_goal_text_from_content_parts():
+    from hermes_cli.goals import goal_text_from_message
+
+    text = goal_text_from_message(
+        [
+            {"type": "input_text", "text": "first line"},
+            {"type": "image_url", "image_url": {"url": "file:///tmp/example.png"}},
+            {"type": "output_text", "text": "second line"},
+        ]
+    )
+    assert text == "first line\nsecond line"
+
+
+def test_should_skip_auto_goal_sync_for_continuation_prompt(hermes_home):
+    from hermes_cli.goals import GoalManager, should_skip_auto_goal_sync
+
+    mgr = GoalManager(session_id="auto-goal-sid-4")
+    mgr.ensure_auto_goal("ship it")
+    continuation = mgr.next_continuation_prompt()
+
+    assert continuation
+    assert should_skip_auto_goal_sync(continuation, mgr) is True
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -170,6 +170,28 @@ def test_goal_stop_and_done_are_clear_aliases(server, session):
     assert "cleared" in r["result"]["output"].lower()
 
 
+def test_auto_goal_sync_from_prompt_submit_helper(server, session, hermes_home):
+    sid, session_key, _ = session
+    del sid  # only the session_key matters here
+    (hermes_home / "config.yaml").write_text(
+        "goals:\n  auto_goal: true\n  max_turns: 9\n",
+        encoding="utf-8",
+    )
+    server._cfg_cache = None
+    server._cfg_mtime = None
+    server._cfg_path = None
+
+    server._sync_auto_goal_for_prompt(session_key, "summarize the release notes")
+
+    from hermes_cli.goals import AUTO_GOAL_SOURCE, GoalManager
+
+    mgr = GoalManager(session_key)
+    assert mgr.state is not None
+    assert mgr.state.goal == "summarize the release notes"
+    assert mgr.state.source == AUTO_GOAL_SOURCE
+    assert mgr.state.max_turns == 9
+
+
 def test_goal_requires_session(server):
     r = _call(server, "command.dispatch", name="goal", arg="nope", session_id="unknown")
     assert "error" in r

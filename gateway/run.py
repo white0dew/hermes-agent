@@ -7682,6 +7682,11 @@ class GatewayRunner:
         if message_text is None:
             return
 
+        try:
+            self._sync_auto_goal_for_event(event, session_entry, message_text)
+        except Exception as exc:
+            logger.debug("auto-goal pre-turn sync failed: %s", exc)
+
         # Bind this gateway run generation to the adapter's active-session
         # event so deferred post-delivery callbacks can be released by the
         # same run that registered them.
@@ -9650,6 +9655,22 @@ class GatewayRunner:
         except Exception:
             return 20
 
+    def _goal_runtime_config(self) -> dict:
+        """Return the raw top-level ``goals`` config block for gateway logic."""
+        try:
+            goals_cfg = (
+                (self.config or {}).get("goals", {})
+                if isinstance(self.config, dict)
+                else getattr(self.config, "goals", {}) or {}
+            )
+            if not goals_cfg:
+                from hermes_cli.config import load_config
+
+                goals_cfg = (load_config() or {}).get("goals") or {}
+        except Exception:
+            goals_cfg = {}
+        return goals_cfg if isinstance(goals_cfg, dict) else {}
+
     def _get_goal_manager_for_event(self, event: "MessageEvent"):
         """Return a GoalManager bound to the session for this gateway event.
 
@@ -9671,6 +9692,44 @@ class GatewayRunner:
             return None, None
         max_turns = self._goal_max_turns_from_config()
         return GoalManager(session_id=sid, default_max_turns=max_turns), session_entry
+
+    def _sync_auto_goal_for_event(
+        self,
+        event: "MessageEvent",
+        session_entry: Any,
+        message_text: str,
+    ) -> None:
+        """Mirror real gateway user turns into an auto-managed standing goal."""
+        if bool(getattr(event, "internal", False)):
+            return
+
+        goals_cfg = self._goal_runtime_config()
+        if not bool(goals_cfg.get("auto_goal", False)):
+            return
+
+        try:
+            from hermes_cli.goals import (
+                GoalManager,
+                goal_text_from_message,
+                should_skip_auto_goal_sync,
+            )
+        except Exception as exc:
+            logger.debug("auto-goal sync unavailable: %s", exc)
+            return
+
+        sid = getattr(session_entry, "session_id", None) or ""
+        if not sid:
+            return
+
+        mgr = GoalManager(session_id=sid, default_max_turns=self._goal_max_turns_from_config())
+        goal_text = goal_text_from_message(message_text)
+        if should_skip_auto_goal_sync(goal_text, mgr):
+            return
+
+        try:
+            mgr.ensure_auto_goal(goal_text)
+        except Exception as exc:
+            logger.debug("auto-goal sync failed: %s", exc)
 
     async def _handle_goal_command(self, event: "MessageEvent") -> str:
         """Handle /goal for gateway platforms.
@@ -9742,6 +9801,7 @@ class GatewayRunner:
                     source=event.source,
                     message_id=event.message_id,
                     channel_prompt=event.channel_prompt,
+                    internal=True,
                 )
                 self._enqueue_fifo(_quick_key, kickoff_event, adapter)
             except Exception as exc:
@@ -9926,6 +9986,7 @@ class GatewayRunner:
                     source=source,
                     message_id=None,
                     channel_prompt=None,
+                    internal=True,
                 )
                 self._enqueue_fifo(_quick_key, cont_event, adapter)
         except Exception as exc:

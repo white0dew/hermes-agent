@@ -9,6 +9,7 @@ endpoint.
 from __future__ import annotations
 
 import importlib
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -198,6 +199,27 @@ class TestGenerate:
         assert tool["output_format"] == "png"
         assert tool["background"] == "opaque"
         assert tool["partial_images"] == 1
+
+    def test_codex_image_tool_payload_serializes_without_sdk_warnings(self):
+        from openai.types.responses.response_create_params import ToolParam
+        from pydantic import TypeAdapter
+
+        tool = codex_plugin._responses_image_generation_tool(
+            model="gpt-image-2",
+            size="864x1536",
+            n=1,
+            quality="medium",
+            output_format="png",
+        )
+
+        assert tool["size"] == "1024x1536"
+        assert "n" not in tool
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            TypeAdapter(list[ToolParam]).dump_python([tool], mode="json")
+
+        assert caught == []
 
     def test_partial_image_event_used_when_done_missing(self, provider, monkeypatch):
         """If the stream never emits output_item.done, fall back to the

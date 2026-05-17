@@ -117,6 +117,126 @@ class TestSystemdServiceRefresh:
             ("wait", False, None),
         ]
 
+
+class TestDashboardAutostart:
+    def test_restart_default_dashboard_after_gateway_restart_launches_detached_process(self, tmp_path, monkeypatch, capsys):
+        stopped = []
+        popen_calls = []
+
+        monkeypatch.setattr(gateway_cli, "_find_default_dashboard_pids", lambda: [111, 222])
+        monkeypatch.setattr(gateway_cli, "_stop_dashboard_processes_for_autostart", lambda pids: stopped.append(list(pids)))
+        monkeypatch.setattr(gateway_cli, "get_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr(gateway_cli, "get_python_path", lambda: "/tmp/venv/bin/python")
+        monkeypatch.setattr(gateway_cli, "_profile_arg", lambda hermes_home=None: "--profile coder")
+        monkeypatch.setattr(gateway_cli, "_wait_for_dashboard_ready", lambda host="127.0.0.1", port=9119, timeout=8.0: True)
+        monkeypatch.setattr(gateway_cli, "is_windows", lambda: False)
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append((cmd, kwargs))
+            return SimpleNamespace(pid=99999)
+
+        monkeypatch.setattr(gateway_cli.subprocess, "Popen", fake_popen)
+
+        assert gateway_cli._restart_default_dashboard_after_gateway_restart() is True
+
+        assert stopped == [[111, 222]]
+        assert len(popen_calls) == 1
+        cmd, kwargs = popen_calls[0]
+        assert cmd == [
+            "/tmp/venv/bin/python",
+            "-m",
+            "hermes_cli.main",
+            "--profile",
+            "coder",
+            "dashboard",
+            "--no-open",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9119",
+        ]
+        assert kwargs["stdin"] is gateway_cli.subprocess.DEVNULL
+        assert kwargs["stderr"] is gateway_cli.subprocess.STDOUT
+        assert kwargs["start_new_session"] is True
+        assert kwargs["cwd"] == str(gateway_cli.PROJECT_ROOT)
+        assert kwargs["env"]["HERMES_HOME"] == str(tmp_path.resolve())
+        out = capsys.readouterr().out
+        assert "Hermes Web UI → http://127.0.0.1:9119" in out
+        assert "Dashboard restarted in background" in out
+
+    def test_systemd_restart_autostarts_dashboard_after_success(self, monkeypatch):
+        calls = []
+
+        monkeypatch.setattr(gateway_cli, "_select_systemd_scope", lambda system=False: False)
+        monkeypatch.setattr(gateway_cli, "_require_service_installed", lambda action, system=False: None)
+        monkeypatch.setattr(gateway_cli, "refresh_systemd_unit_if_needed", lambda system=False: None)
+        monkeypatch.setattr("gateway.status.get_running_pid", lambda: 654)
+        monkeypatch.setattr(
+            gateway_cli,
+            "_graceful_restart_via_sigusr1",
+            lambda pid, timeout: True,
+        )
+        monkeypatch.setattr(
+            gateway_cli,
+            "_run_systemctl",
+            lambda args, **kwargs: calls.append(args) or SimpleNamespace(stdout="", stderr="", returncode=0),
+        )
+        monkeypatch.setattr(
+            gateway_cli,
+            "_wait_for_systemd_service_restart",
+            lambda system=False, previous_pid=None: True,
+        )
+        monkeypatch.setattr(
+            gateway_cli,
+            "_restart_default_dashboard_after_gateway_restart",
+            lambda system=False: calls.append(("dashboard", system)) or True,
+        )
+
+        gateway_cli.systemd_restart()
+
+        assert ("dashboard", False) in calls
+
+    def test_launchd_restart_autostarts_dashboard_after_success(self, monkeypatch):
+        calls = []
+
+        monkeypatch.setattr("gateway.status.get_running_pid", lambda: None)
+        monkeypatch.setattr(
+            gateway_cli.subprocess,
+            "run",
+            lambda cmd, **kwargs: calls.append(cmd) or SimpleNamespace(returncode=0, stdout="", stderr=""),
+        )
+        monkeypatch.setattr(
+            gateway_cli,
+            "_restart_default_dashboard_after_gateway_restart",
+            lambda system=False: calls.append(("dashboard", system)) or True,
+        )
+
+        gateway_cli.launchd_restart()
+
+        assert ("dashboard", False) in calls
+
+    def test_gateway_restart_all_autostarts_dashboard_after_service_start(self, monkeypatch):
+        calls = []
+
+        monkeypatch.setattr(gateway_cli, "supports_systemd_services", lambda: True)
+        monkeypatch.setattr(gateway_cli, "get_systemd_unit_path", lambda system=False: SimpleNamespace(exists=lambda: True))
+        monkeypatch.setattr(gateway_cli, "systemd_stop", lambda system=False: calls.append(("stop", system)))
+        monkeypatch.setattr(gateway_cli, "kill_gateway_processes", lambda all_profiles=False: 0)
+        monkeypatch.setattr(gateway_cli, "_wait_for_gateway_exit", lambda timeout=10.0, force_after=5.0: True)
+        monkeypatch.setattr(gateway_cli, "systemd_start", lambda system=False: calls.append(("start", system)))
+        monkeypatch.setattr(
+            gateway_cli,
+            "_restart_default_dashboard_after_gateway_restart",
+            lambda system=False: calls.append(("dashboard", system)) or True,
+        )
+
+        gateway_cli._gateway_command_inner(
+            SimpleNamespace(gateway_command="restart", system=False, all=True)
+        )
+
+        assert ("start", False) in calls
+        assert ("dashboard", False) in calls
+
     def test_systemd_stop_marks_running_gateway_as_planned_stop(self, monkeypatch):
         calls = []
         markers = []
@@ -561,6 +681,11 @@ class TestLaunchdServiceRecovery:
         monkeypatch.setattr(gateway_cli, "_get_restart_drain_timeout", lambda: 12.0)
         monkeypatch.setattr(gateway_cli, "_request_gateway_self_restart", lambda pid: False)
         monkeypatch.setattr(gateway_cli, "_wait_for_gateway_exit", lambda timeout, force_after=None: True)
+        monkeypatch.setattr(
+            gateway_cli,
+            "_restart_default_dashboard_after_gateway_restart",
+            lambda system=False: True,
+        )
         monkeypatch.setattr(gateway_cli, "terminate_pid", lambda pid, force=False: calls.append(("term", pid, force)))
         monkeypatch.setattr(
             "gateway.status.get_running_pid",

@@ -202,6 +202,8 @@ export const hu: Translations = {
     confirmDeleteMessage:
       "Ez eltávolítja a feladatot az ütemezésből. A művelet nem vonható vissza.",
     confirmDeleteTitle: "Törli az ütemezett feladatot?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Új Cron-feladat",
     nameOptional: "Név (opcionális)",
     namePlaceholder: "pl. Napi összegzés",
@@ -210,6 +212,8 @@ export const hu: Translations = {
     schedule: "Ütemezés (cron-kifejezés)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Kézbesítés ide",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Ütemezett feladatok",
     noJobs: "Nincs beállított cron-feladat. Hozzon létre egyet fent.",
     last: "Utolsó",
@@ -223,6 +227,7 @@ export const hu: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

@@ -202,6 +202,8 @@ export const ru: Translations = {
     confirmDeleteMessage:
       "Это удалит задачу из расписания. Действие нельзя отменить.",
     confirmDeleteTitle: "Удалить запланированную задачу?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Новая Cron-задача",
     nameOptional: "Имя (необязательно)",
     namePlaceholder: "напр. Ежедневная сводка",
@@ -210,6 +212,8 @@ export const ru: Translations = {
     schedule: "Расписание (cron-выражение)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Доставить в",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Запланированные задачи",
     noJobs: "Cron-задачи не настроены. Создайте задачу выше.",
     last: "Последний",
@@ -223,6 +227,7 @@ export const ru: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

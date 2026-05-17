@@ -202,6 +202,8 @@ export const fr: Translations = {
     confirmDeleteMessage:
       "Cela supprime la tâche du planning. Cette action est irréversible.",
     confirmDeleteTitle: "Supprimer la tâche planifiée ?",
+    edit: "Edit",
+    editJob: "Edit Cron Job",
     newJob: "Nouvelle tâche cron",
     nameOptional: "Nom (facultatif)",
     namePlaceholder: "ex. Résumé quotidien",
@@ -210,6 +212,8 @@ export const fr: Translations = {
     schedule: "Planning (expression cron)",
     schedulePlaceholder: "0 9 * * *",
     deliverTo: "Livrer à",
+    deliverTarget: "Delivery target",
+    deliverTargetPlaceholder: "chat_id / open_id / group id",
     scheduledJobs: "Tâches planifiées",
     noJobs: "Aucune tâche cron configurée. Créez-en une ci-dessus.",
     last: "Dernière",
@@ -223,6 +227,7 @@ export const fr: Translations = {
       discord: "Discord",
       slack: "Slack",
       email: "Email",
+      feishu: "Feishu",
     },
   },
 

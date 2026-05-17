@@ -41,9 +41,16 @@ export function usePlugins() {
     const injectedScripts: HTMLScriptElement[] = [];
 
     for (const manifest of manifests) {
+      const assetVersion = import.meta.env.DEV
+        ? `hermes_dv=${Date.now()}`
+        : `v=${encodeURIComponent(manifest.version)}`;
+      const withAssetVersion = (url: string) => `${url}?${assetVersion}`;
+
       // Inject CSS if specified.
       if (manifest.css) {
-        const cssUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.css}`;
+        const cssUrl = withAssetVersion(
+          `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.css}`,
+        );
         if (!document.querySelector(`link[href="${cssUrl}"]`)) {
           const link = document.createElement("link");
           link.rel = "stylesheet";
@@ -56,12 +63,10 @@ export function usePlugins() {
       // in-memory registry while the browser would otherwise never
       // re-execute a previously cached <script> URL.
       const baseUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.entry}`;
-      const scriptSrc = import.meta.env.DEV
-        ? `${baseUrl}?hermes_dv=${Date.now()}`
-        : baseUrl;
+      const scriptSrc = withAssetVersion(baseUrl);
       if (!import.meta.env.DEV) {
-        if (loadedScripts.current.has(baseUrl)) continue;
-        loadedScripts.current.add(baseUrl);
+        if (loadedScripts.current.has(scriptSrc)) continue;
+        loadedScripts.current.add(scriptSrc);
       }
 
       const script = document.createElement("script");
