@@ -16,7 +16,7 @@ import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { H2 } from "@/components/NouiTypography";
 import { api } from "@/lib/api";
-import type { CronJob } from "@/lib/api";
+import type { CronJob, ProfileInfo } from "@/lib/api";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useToast } from "@/hooks/useToast";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
@@ -79,6 +79,24 @@ function getJobState(job: CronJob): string {
   return asText(job.state) || (job.enabled === false ? "disabled" : "scheduled");
 }
 
+function getJobProfile(job: CronJob): string {
+  return asText(job.profile) || asText(job.profile_name) || "default";
+}
+
+function getJobKey(job: CronJob): string {
+  return `${getJobProfile(job)}:${job.id}`;
+}
+
+function splitJobKey(key: string): { profile: string; id: string } {
+  const idx = key.indexOf(":");
+  if (idx === -1) return { profile: "default", id: key };
+  return { profile: key.slice(0, idx) || "default", id: key.slice(idx + 1) };
+}
+
+function profileLabel(profile: string): string {
+  return profile === "default" ? "default" : profile;
+}
+
 const STATUS_TONE: Record<string, "success" | "warning" | "destructive"> = {
   enabled: "success",
   scheduled: "success",
@@ -116,6 +134,8 @@ function buildDeliver(kind: string, target: string): string {
 
 export default function CronPage() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
+  const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState("all");
   const [loading, setLoading] = useState(true);
   const { toast, showToast } = useToast();
   const { t } = useI18n();
@@ -139,15 +159,24 @@ export default function CronPage() {
   const [editingName, setEditingName] = useState("");
   const [editingDeliver, setEditingDeliver] = useState("local");
   const [editingDeliverTarget, setEditingDeliverTarget] = useState("");
+  const [editingProfile, setEditingProfile] = useState("default");
   const [savingEdit, setSavingEdit] = useState(false);
+  const createProfile = selectedProfile === "all" ? "default" : selectedProfile;
 
   const loadJobs = useCallback(() => {
     api
-      .getCronJobs()
+      .getCronJobs(selectedProfile)
       .then(setJobs)
       .catch(() => showToast(t.common.loading, "error"))
       .finally(() => setLoading(false));
-  }, [showToast, t.common.loading]);
+  }, [selectedProfile, showToast, t.common.loading]);
+
+  useEffect(() => {
+    api
+      .getProfiles()
+      .then((res) => setProfiles(res.profiles))
+      .catch(() => setProfiles([]));
+  }, []);
 
   useEffect(() => {
     loadJobs();
@@ -160,12 +189,15 @@ export default function CronPage() {
     }
     setCreating(true);
     try {
-      await api.createCronJob({
-        prompt: prompt.trim(),
-        schedule: schedule.trim(),
-        name: name.trim() || undefined,
-        deliver: buildDeliver(deliver, deliverTarget),
-      });
+      await api.createCronJob(
+        {
+          prompt: prompt.trim(),
+          schedule: schedule.trim(),
+          name: name.trim() || undefined,
+          deliver: buildDeliver(deliver, deliverTarget),
+        },
+        createProfile,
+      );
       showToast(t.common.create + " ✓", "success");
       setPrompt("");
       setSchedule("");
@@ -189,6 +221,7 @@ export default function CronPage() {
     setEditingName(getJobName(job));
     setEditingDeliver(parsedDeliver.kind);
     setEditingDeliverTarget(parsedDeliver.target);
+    setEditingProfile(getJobProfile(job));
   }, []);
 
   const cancelEdit = useCallback(() => {
@@ -198,6 +231,7 @@ export default function CronPage() {
     setEditingName("");
     setEditingDeliver("local");
     setEditingDeliverTarget("");
+    setEditingProfile("default");
     setSavingEdit(false);
   }, []);
 
@@ -209,12 +243,16 @@ export default function CronPage() {
     }
     setSavingEdit(true);
     try {
-      await api.updateCronJob(editingId, {
-        prompt: editingPrompt.trim(),
-        schedule: editingSchedule.trim(),
-        name: editingName.trim() || undefined,
-        deliver: buildDeliver(editingDeliver, editingDeliverTarget),
-      });
+      await api.updateCronJob(
+        editingId,
+        {
+          prompt: editingPrompt.trim(),
+          schedule: editingSchedule.trim(),
+          name: editingName.trim(),
+          deliver: buildDeliver(editingDeliver, editingDeliverTarget),
+        },
+        editingProfile,
+      );
       showToast(`${t.common.save} ✓`, "success");
       cancelEdit();
       loadJobs();
@@ -247,14 +285,15 @@ export default function CronPage() {
   const handlePauseResume = async (job: CronJob) => {
     try {
       const isPaused = getJobState(job) === "paused";
+      const profile = getJobProfile(job);
       if (isPaused) {
-        await api.resumeCronJob(job.id);
+        await api.resumeCronJob(job.id, profile);
         showToast(
           `${t.cron.resume}: "${truncateText(getJobTitle(job), 30)}"`,
           "success",
         );
       } else {
-        await api.pauseCronJob(job.id);
+        await api.pauseCronJob(job.id, profile);
         showToast(
           `${t.cron.pause}: "${truncateText(getJobTitle(job), 30)}"`,
           "success",
@@ -268,7 +307,7 @@ export default function CronPage() {
 
   const handleTrigger = async (job: CronJob) => {
     try {
-      await api.triggerCronJob(job.id);
+      await api.triggerCronJob(job.id, getJobProfile(job));
       showToast(
         `${t.cron.triggerNow}: "${truncateText(getJobTitle(job), 30)}"`,
         "success",
@@ -281,10 +320,11 @@ export default function CronPage() {
 
   const jobDelete = useConfirmDelete({
     onDelete: useCallback(
-      async (id: string) => {
-        const job = jobs.find((j) => j.id === id);
+      async (key: string) => {
+        const { profile, id } = splitJobKey(key);
+        const job = jobs.find((j) => getJobKey(j) === key);
         try {
-          await api.deleteCronJob(id);
+          await api.deleteCronJob(id, profile);
           showToast(
             `${t.common.delete}: "${job ? truncateText(getJobTitle(job), 30) : id}"`,
             "success",
@@ -323,7 +363,7 @@ export default function CronPage() {
   }
 
   const pendingJob = jobDelete.pendingId
-    ? jobs.find((j) => j.id === jobDelete.pendingId)
+    ? jobs.find((j) => getJobKey(j) === jobDelete.pendingId)
     : null;
 
   return (
@@ -376,6 +416,21 @@ export default function CronPage() {
             </header>
 
             <div className="grid gap-4 p-5">
+              <div className="grid gap-2">
+                <Label htmlFor="cron-profile">Profile</Label>
+                <Select
+                  id="cron-profile"
+                  value={createProfile}
+                  onValueChange={(v) => setSelectedProfile(v)}
+                >
+                  {profiles.map((profile) => (
+                    <SelectOption key={profile.name} value={profile.name}>
+                      {profileLabel(profile.name)}
+                    </SelectOption>
+                  ))}
+                </Select>
+              </div>
+
               <div className="grid gap-2">
                 <Label htmlFor="cron-name">{t.cron.nameOptional}</Label>
                 <Input
@@ -567,13 +622,31 @@ export default function CronPage() {
       )}
 
       <div className="flex flex-col gap-3">
-        <H2
-          variant="sm"
-          className="flex items-center gap-2 text-muted-foreground"
-        >
-          <Clock className="h-4 w-4" />
-          {t.cron.scheduledJobs} ({jobs.length})
-        </H2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <H2
+            variant="sm"
+            className="flex items-center gap-2 text-muted-foreground"
+          >
+            <Clock className="h-4 w-4" />
+            {t.cron.scheduledJobs} ({jobs.length})
+          </H2>
+
+          <div className="grid gap-1 min-w-[220px]">
+            <Label htmlFor="cron-profile-filter">Profile</Label>
+            <Select
+              id="cron-profile-filter"
+              value={selectedProfile}
+              onValueChange={(v) => setSelectedProfile(v)}
+            >
+              <SelectOption value="all">All profiles</SelectOption>
+              {profiles.map((profile) => (
+                <SelectOption key={profile.name} value={profile.name}>
+                  {profileLabel(profile.name)}
+                </SelectOption>
+              ))}
+            </Select>
+          </div>
+        </div>
 
         {jobs.length === 0 && (
           <Card>
@@ -588,21 +661,24 @@ export default function CronPage() {
           const promptText = getJobPrompt(job);
           const title = getJobTitle(job);
           const hasName = Boolean(getJobName(job));
-          const deliverValue = asText(job.deliver);
+          const deliver = asText(job.deliver);
+          const profile = getJobProfile(job);
+          const jobKey = getJobKey(job);
 
           return (
-            <Card key={job.id}>
-              <CardContent className="flex items-center gap-4 py-4">
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">
+            <Card key={jobKey}>
+              <CardContent className="flex items-start gap-4 py-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-sm truncate">
                       {title}
                     </span>
                     <Badge tone={STATUS_TONE[state] ?? "secondary"}>
                       {state}
                     </Badge>
-                    {deliverValue && deliverValue !== "local" && (
-                      <Badge tone="outline">{deliverValue}</Badge>
+                    <Badge tone="outline">{profileLabel(profile)}</Badge>
+                    {deliver && deliver !== "local" && (
+                      <Badge tone="outline">{deliver}</Badge>
                     )}
                   </div>
                   {hasName && promptText && (
@@ -664,7 +740,7 @@ export default function CronPage() {
                     size="icon"
                     title={t.common.delete}
                     aria-label={t.common.delete}
-                    onClick={() => jobDelete.requestDelete(job.id)}
+                    onClick={() => jobDelete.requestDelete(jobKey)}
                   >
                     <Trash2 />
                   </Button>

@@ -659,6 +659,7 @@ export const hu: Translations = {
     columnLabels: {
       triage: "Triázs",
       todo: "Tennivaló",
+      scheduled: "Ütemezett",
       ready: "Indulásra kész",
       running: "Folyamatban",
       blocked: "Blokkolva",
@@ -668,6 +669,7 @@ export const hu: Translations = {
     columnHelp: {
       triage: "Nyers ötletek — egy specifier kidolgozza a specifikációt",
       todo: "Függőségekre vár vagy nincs felelőse",
+      scheduled: "Ismert időzítésre vagy ütemezett utánkövetésre vár",
       ready: "A függőségek teljesültek; rendelj hozzá profilt az indításhoz",
       running: "Worker felvette — folyamatban",
       blocked: "A worker emberi beavatkozást kért",
