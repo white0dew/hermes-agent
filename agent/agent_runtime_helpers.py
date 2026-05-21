@@ -1190,6 +1190,7 @@ def anthropic_prompt_cache_policy(
 
 def create_openai_client(agent, client_kwargs: dict, *, reason: str, shared: bool) -> Any:
     from agent.auxiliary_client import _validate_base_url, _validate_proxy_env_urls
+    from hermes_cli import __version__ as _HERMES_VERSION
     # Treat client_kwargs as read-only. Callers pass agent._client_kwargs (or shallow
     # copies of it) in; any in-place mutation leaks back into the stored dict and is
     # reused on subsequent requests. #10933 hit this by injecting an httpx.Client
@@ -1270,6 +1271,26 @@ def create_openai_client(agent, client_kwargs: dict, *, reason: str, shared: boo
         keepalive_http = agent._build_keepalive_http_client(client_kwargs.get("base_url", ""))
         if keepalive_http is not None:
             client_kwargs["http_client"] = keepalive_http
+    # Some OpenAI-compatible relays special-case or outright reject the OpenAI
+    # Python SDK default ``User-Agent: OpenAI/Python ...`` on `/v1/responses`.
+    # When Hermes is talking to a generic/custom OpenAI-wire endpoint and the
+    # caller didn't already declare a provider-specific User-Agent, pin a stable
+    # Hermes UA so the relay sees an app/client identity instead of the SDK one.
+    _base_url = str(client_kwargs.get("base_url", "") or "")
+    _default_headers = client_kwargs.get("default_headers")
+    if not isinstance(_default_headers, dict):
+        _default_headers = {}
+    if (
+        _base_url
+        and not _default_headers.get("User-Agent")
+        and agent.provider not in {"openai", "openai-codex", "copilot", "copilot-acp"}
+        and not _base_url.startswith("acp://")
+        and "chatgpt.com" not in _base_url
+        and "api.openai.com" not in _base_url
+    ):
+        _default_headers = dict(_default_headers)
+        _default_headers["User-Agent"] = f"hermes-cli/{_HERMES_VERSION}"
+        client_kwargs["default_headers"] = _default_headers
     # Uses the module-level `OpenAI` name, resolved lazily on first
     # access via __getattr__ below. Tests patch via `run_agent.OpenAI`.
     client = _ra().OpenAI(**client_kwargs)

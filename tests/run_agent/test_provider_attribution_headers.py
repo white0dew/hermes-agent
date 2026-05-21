@@ -6,6 +6,7 @@ referrerUrl / appName / User-Agent flow into gateway analytics.
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from hermes_cli import __version__ as _HERMES_VERSION
 from run_agent import AIAgent
 
 
@@ -174,6 +175,54 @@ def test_unknown_base_url_clears_default_headers(mock_openai):
     agent._apply_client_headers_for_base_url("https://api.example.com/v1")
 
     assert "default_headers" not in agent._client_kwargs
+
+
+@patch("run_agent.OpenAI")
+def test_generic_custom_openai_client_gets_hermes_user_agent(mock_openai):
+    captured = {}
+
+    def _capture(**kwargs):
+        captured.update(kwargs)
+        return MagicMock()
+
+    mock_openai.side_effect = _capture
+    AIAgent(
+        api_key="test-key",
+        base_url="https://api.example.com/v1",
+        provider="custom:newapi",
+        model="gpt-5.4",
+        quiet_mode=True,
+        skip_context_files=True,
+        skip_memory=True,
+    )
+
+    headers = captured["default_headers"]
+    assert headers["User-Agent"] == f"hermes-cli/{_HERMES_VERSION}"
+
+
+@patch("run_agent.OpenAI")
+def test_generic_custom_openai_client_preserves_existing_user_agent(mock_openai):
+    captured = {}
+
+    def _capture(**kwargs):
+        captured.update(kwargs)
+        return MagicMock()
+
+    mock_openai.side_effect = _capture
+    agent = AIAgent(
+        api_key="test-key",
+        base_url="https://api.example.com/v1",
+        provider="custom:newapi",
+        model="gpt-5.4",
+        quiet_mode=True,
+        skip_context_files=True,
+        skip_memory=True,
+    )
+    agent._client_kwargs["default_headers"] = {"User-Agent": "custom-ua/1.0"}
+    agent._create_openai_client(agent._client_kwargs, reason="test", shared=True)
+
+    headers = captured["default_headers"]
+    assert headers["User-Agent"] == "custom-ua/1.0"
 
 
 @patch("run_agent.OpenAI")
