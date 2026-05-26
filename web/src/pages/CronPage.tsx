@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { PluginSlot } from "@/plugins";
+import { cn, themedBody } from "@/lib/utils";
 
 function formatTime(iso?: string | null): string {
   if (!iso) return "—";
@@ -342,10 +343,11 @@ export default function CronPage() {
   useLayoutEffect(() => {
     setEnd(
       <Button
+        className="uppercase"
         size="sm"
         onClick={() => setCreateModalOpen(true)}
+        prefix={<Plus className="h-3 w-3" />}
       >
-        <Plus className="h-3 w-3" />
         {t.common.create}
       </Button>,
     );
@@ -395,7 +397,12 @@ export default function CronPage() {
           aria-modal="true"
           aria-labelledby="create-cron-title"
         >
-          <div className="relative flex w-full max-w-lg flex-col border border-border bg-card shadow-2xl">
+          <div
+            className={cn(
+              themedBody,
+              "relative flex w-full max-w-lg flex-col border border-border bg-card shadow-2xl",
+            )}
+          >
             <Button
               ghost
               size="icon"
@@ -409,7 +416,7 @@ export default function CronPage() {
             <header className="border-b border-border p-5 pb-3">
               <h2
                 id="create-cron-title"
-                className="font-display text-base tracking-wider uppercase"
+                className="font-mondwest text-display text-base tracking-wider"
               >
                 {t.cron.newJob}
               </h2>
@@ -494,6 +501,7 @@ export default function CronPage() {
 
               <div className="flex justify-end">
                 <Button
+                  className="uppercase"
                   size="sm"
                   onClick={handleCreate}
                   disabled={creating}
@@ -517,7 +525,12 @@ export default function CronPage() {
           aria-modal="true"
           aria-labelledby="cron-edit-title"
         >
-          <div className="relative w-full max-w-2xl border border-border bg-card shadow-2xl">
+          <div
+            className={cn(
+              themedBody,
+              "relative w-full max-w-2xl border border-border bg-card shadow-2xl",
+            )}
+          >
             <Button
               ghost
               size="icon"
