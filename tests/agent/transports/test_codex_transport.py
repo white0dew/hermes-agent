@@ -53,6 +53,20 @@ class TestCodexBuildKwargs:
         assert kw["instructions"] == "You are helpful."
         assert "input" in kw
         assert kw["store"] is False
+        assert "tools" not in kw
+        assert "tool_choice" not in kw
+        assert "parallel_tool_calls" not in kw
+
+    def test_omits_tools_when_none(self, transport):
+        """Regression: responses.stream() treats tools=None as a real value
+        and openai-python iterates it inside _make_tools, raising
+        TypeError: 'NoneType' object is not iterable. Omit the kwarg instead.
+        """
+        messages = [{"role": "user", "content": "Hello"}]
+        kw = transport.build_kwargs(model="gpt-5.4", messages=messages, tools=None)
+        assert "tools" not in kw
+        assert "tool_choice" not in kw
+        assert "parallel_tool_calls" not in kw
 
     def test_system_extracted_from_messages(self, transport):
         messages = [

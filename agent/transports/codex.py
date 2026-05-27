@@ -101,10 +101,15 @@ class ResponsesApiTransport(ProviderTransport):
                 payload_messages,
                 is_xai_responses=is_xai_responses,
             ),
-            "tools": response_tools,
             "store": False,
         }
+        # Only set ``tools`` when we have a non-empty list — the OpenAI SDK's
+        # responses.stream() treats ``tools=None`` as a provided value and
+        # iterates it inside ``_make_tools``, which raises ``TypeError:
+        # 'NoneType' object is not iterable``.  The kwarg must be omitted
+        # entirely when there are no tools.
         if response_tools:
+            kwargs["tools"] = response_tools
             kwargs["tool_choice"] = "auto"
             kwargs["parallel_tool_calls"] = True
 

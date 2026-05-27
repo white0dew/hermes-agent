@@ -448,6 +448,77 @@ def test_run_codex_stream_falls_back_to_create_after_stream_completion_error(mon
     assert response.output[0].content[0].text == "create fallback ok"
 
 
+def test_run_codex_stream_falls_back_after_null_output_parse_typeerror(monkeypatch):
+    """Regression for chatgpt.com/backend-api/codex terminal frames.
+
+    openai-python parses response.completed with ``for output in response.output``;
+    when the backend sends output=null, the typed stream raises TypeError before
+    stream.get_final_response() can run. Hermes should retry once, then use the
+    raw create(stream=True) fallback and preserve the provider's answer.
+    """
+    agent = _build_agent(monkeypatch)
+    calls = {"stream": 0, "create": 0}
+
+    def _fake_stream(**kwargs):
+        calls["stream"] += 1
+        return _FakeResponsesStream(
+            final_error=TypeError("'NoneType' object is not iterable")
+        )
+
+    def _fake_create(**kwargs):
+        calls["create"] += 1
+        return _FakeCreateStream([
+            SimpleNamespace(type="response.output_text.delta", delta="fallback "),
+            SimpleNamespace(type="response.output_text.delta", delta="ok"),
+            SimpleNamespace(
+                type="response.completed",
+                response=SimpleNamespace(
+                    output=None,
+                    usage=SimpleNamespace(input_tokens=5, output_tokens=2, total_tokens=7),
+                    status="completed",
+                    model="gpt-5-codex",
+                ),
+            ),
+        ])
+
+    agent.client = SimpleNamespace(
+        responses=SimpleNamespace(stream=_fake_stream, create=_fake_create)
+    )
+
+    response = agent._run_codex_stream(_codex_request_kwargs())
+    assert calls == {"stream": 2, "create": 1}
+    assert response.output[0].content[0].text == "fallback ok"
+
+
+def test_run_codex_stream_fallback_coerces_unrecoverable_null_output(monkeypatch):
+    """If output=null and no stream items/deltas exist, return output=[] rather
+    than leaking None to response.output_text property access downstream.
+    """
+    agent = _build_agent(monkeypatch)
+
+    agent.client = SimpleNamespace(
+        responses=SimpleNamespace(
+            stream=lambda **kwargs: _FakeResponsesStream(
+                final_error=TypeError("'NoneType' object is not iterable")
+            ),
+            create=lambda **kwargs: _FakeCreateStream([
+                SimpleNamespace(
+                    type="response.completed",
+                    response=SimpleNamespace(
+                        output=None,
+                        usage=SimpleNamespace(input_tokens=1, output_tokens=0, total_tokens=1),
+                        status="completed",
+                        model="gpt-5-codex",
+                    ),
+                )
+            ]),
+        )
+    )
+
+    response = agent._run_codex_stream(_codex_request_kwargs())
+    assert response.output == []
+
+
 def test_run_codex_stream_fallback_parses_create_stream_events(monkeypatch):
     agent = _build_agent(monkeypatch)
     calls = {"stream": 0, "create": 0}

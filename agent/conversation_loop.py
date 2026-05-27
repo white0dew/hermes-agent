@@ -1223,8 +1223,21 @@ def run_conversation(
                                 error_details.append(f"response.status={_codex_resp_status}: {_codex_error_msg}")
                             else:
                                 # output_text fallback: stream backfill may have failed
-                                # but normalize can still recover from output_text
-                                _out_text = getattr(response, "output_text", None)
+                                # but normalize can still recover from output_text.
+                                # NB: response.output_text is a computed @property
+                                # that iterates response.output — if backfill left
+                                # output=None (chatgpt.com codex edge case), the
+                                # property itself raises TypeError. Guard the
+                                # access so we treat that as "no recoverable text"
+                                # instead of crashing the turn.
+                                try:
+                                    _out_text = getattr(response, "output_text", None)
+                                except Exception as _ot_exc:
+                                    logger.debug(
+                                        "Codex response.output_text raised %s; treating as empty.",
+                                        type(_ot_exc).__name__,
+                                    )
+                                    _out_text = None
                                 _out_text_stripped = _out_text.strip() if isinstance(_out_text, str) else ""
                                 if _out_text_stripped:
                                     logger.debug(
@@ -1820,6 +1833,20 @@ def run_conversation(
                     thinking_spinner = None
                 if agent.thinking_callback:
                     agent.thinking_callback("")
+
+                # Log full traceback for unexpected errors so the source line
+                # is recoverable from agent.log without re-running with a
+                # debugger.  Without this, errors like 'NoneType is not
+                # iterable' show up with no stack trace and the bug is
+                # essentially undiagnosable.
+                if isinstance(api_error, (TypeError, AttributeError, ValueError, KeyError, IndexError)):
+                    logger.exception(
+                        "%sUnexpected %s during API call: %s %s",
+                        agent.log_prefix,
+                        type(api_error).__name__,
+                        api_error,
+                        agent._client_log_context(),
+                    )
 
                 # -----------------------------------------------------------
                 # UnicodeEncodeError recovery.  Two common causes:
