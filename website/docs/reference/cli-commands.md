@@ -1295,6 +1295,7 @@ Launch the web dashboard — a browser-based UI for managing configuration, API 
 | `--port` | `9119` | Port to run the web server on |
 | `--host` | `127.0.0.1` | Bind address |
 | `--no-open` | — | Don't auto-open the browser |
+| `--back` | — | Start the dashboard in the background, print the URL and log path, then exit. If a dashboard is already running on the same host/port, Hermes stops it first and launches a fresh background instance. |
 | `--tui` | off | Enable the in-browser Chat tab by running `hermes --tui` behind a PTY/WebSocket bridge. Requires `pip install 'hermes-agent[web,pty]'` and a POSIX PTY environment such as Linux, macOS, or WSL2. |
 | `--insecure` | off | Allow binding to non-localhost hosts. Exposes dashboard credentials on the network; use only behind trusted network controls. |
 | `--stop` | — | Stop running `hermes dashboard` processes and exit. |
@@ -1306,6 +1307,9 @@ hermes dashboard
 
 # Custom port, no browser
 hermes dashboard --port 8080 --no-open
+
+# Background launch with logfile
+hermes dashboard --back
 
 # Enable the browser Chat tab
 hermes dashboard --tui

@@ -1359,22 +1359,34 @@ def _dashboard_autostart_log_path() -> Path:
     return log_dir / "dashboard-autostart.log"
 
 
-def _dashboard_autostart_command() -> list[str]:
+def _dashboard_command(
+    host: str = DEFAULT_DASHBOARD_HOST,
+    port: int = DEFAULT_DASHBOARD_PORT,
+    *,
+    no_open: bool = True,
+    allow_public: bool = False,
+    embedded_chat: bool = False,
+    skip_build: bool = False,
+) -> list[str]:
     cmd = [get_python_path(), "-m", "hermes_cli.main"]
     profile_arg = _profile_arg()
     if profile_arg:
         cmd.extend(profile_arg.split())
-    cmd.extend(
-        [
-            "dashboard",
-            "--no-open",
-            "--host",
-            DEFAULT_DASHBOARD_HOST,
-            "--port",
-            str(DEFAULT_DASHBOARD_PORT),
-        ]
-    )
+    cmd.extend(["dashboard"])
+    if no_open:
+        cmd.append("--no-open")
+    cmd.extend(["--host", host or DEFAULT_DASHBOARD_HOST, "--port", str(port)])
+    if allow_public:
+        cmd.append("--insecure")
+    if embedded_chat:
+        cmd.append("--tui")
+    if skip_build:
+        cmd.append("--skip-build")
     return cmd
+
+
+def _dashboard_autostart_command() -> list[str]:
+    return _dashboard_command()
 
 
 def _iter_dashboard_processes() -> list[tuple[int, str]]:
@@ -1382,6 +1394,14 @@ def _iter_dashboard_processes() -> list[tuple[int, str]]:
         "hermes dashboard",
         "hermes_cli.main dashboard",
         "hermes_cli/main.py dashboard",
+    )
+    lifecycle_markers = (
+        " dashboard --status",
+        " dashboard --stop",
+        " dashboard --back",
+        " dashboard --detach",
+        " dashboard --help",
+        " dashboard -h",
     )
     processes: list[tuple[int, str]] = []
     self_pid = os.getpid()
@@ -1410,7 +1430,11 @@ def _iter_dashboard_processes() -> list[tuple[int, str]]:
                     except ValueError:
                         current_cmd = ""
                         continue
-                    if pid != self_pid and any(p in current_cmd for p in patterns):
+                    if (
+                        pid != self_pid
+                        and any(p in current_cmd for p in patterns)
+                        and not any(marker in current_cmd for marker in lifecycle_markers)
+                    ):
                         processes.append((pid, current_cmd))
                     current_cmd = ""
             return processes
@@ -1435,7 +1459,11 @@ def _iter_dashboard_processes() -> list[tuple[int, str]]:
             except ValueError:
                 continue
             command = parts[1]
-            if pid != self_pid and any(p in command for p in patterns):
+            if (
+                pid != self_pid
+                and any(p in command for p in patterns)
+                and not any(marker in command for marker in lifecycle_markers)
+            ):
                 processes.append((pid, command))
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return []
@@ -1470,13 +1498,39 @@ def _dashboard_host_port_from_command(command: str) -> tuple[str, int]:
     return host or DEFAULT_DASHBOARD_HOST, port
 
 
-def _find_default_dashboard_pids() -> list[int]:
+def _dashboard_target_matches(
+    target_host: str,
+    target_port: int,
+    process_host: str,
+    process_port: int,
+) -> bool:
+    if target_port != process_port:
+        return False
+
+    loopback_hosts = {DEFAULT_DASHBOARD_HOST, "localhost"}
+    if target_host in loopback_hosts and process_host in loopback_hosts:
+        return True
+    return target_host == process_host
+
+
+def _find_dashboard_pids_for_target(host: str, port: int) -> list[int]:
     pids: list[int] = []
     for pid, command in _iter_dashboard_processes():
-        host, port = _dashboard_host_port_from_command(command)
-        if host in {DEFAULT_DASHBOARD_HOST, "localhost"} and port == DEFAULT_DASHBOARD_PORT:
+        process_host, process_port = _dashboard_host_port_from_command(command)
+        if _dashboard_target_matches(
+            host or DEFAULT_DASHBOARD_HOST,
+            port,
+            process_host,
+            process_port,
+        ):
             pids.append(pid)
     return pids
+
+
+def _find_default_dashboard_pids() -> list[int]:
+    return _find_dashboard_pids_for_target(
+        DEFAULT_DASHBOARD_HOST, DEFAULT_DASHBOARD_PORT
+    )
 
 
 def _stop_dashboard_processes_for_autostart(pids: list[int]) -> None:
@@ -1529,6 +1583,49 @@ def _wait_for_dashboard_ready(
     return False
 
 
+def _spawn_dashboard_detached(
+    host: str = DEFAULT_DASHBOARD_HOST,
+    port: int = DEFAULT_DASHBOARD_PORT,
+    *,
+    no_open: bool = True,
+    allow_public: bool = False,
+    embedded_chat: bool = False,
+    skip_build: bool = False,
+) -> Path:
+    log_path = _dashboard_autostart_log_path()
+    env = os.environ.copy()
+    env["HERMES_HOME"] = str(get_hermes_home().resolve())
+    popen_kwargs = {
+        "cwd": str(PROJECT_ROOT),
+        "env": env,
+        "stdin": subprocess.DEVNULL,
+        "stdout": None,
+        "stderr": subprocess.STDOUT,
+    }
+
+    with open(log_path, "ab") as log_fp:
+        popen_kwargs["stdout"] = log_fp
+        if is_windows():
+            popen_kwargs["creationflags"] = (
+                getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+        subprocess.Popen(
+            _dashboard_command(
+                host=host,
+                port=port,
+                no_open=no_open,
+                allow_public=allow_public,
+                embedded_chat=embedded_chat,
+                skip_build=skip_build,
+            ),
+            **popen_kwargs,
+        )
+    return log_path
+
+
 def _restart_default_dashboard_after_gateway_restart(system: bool = False) -> bool:
     """Restart the built-in dashboard in the background after gateway restart.
 
@@ -1540,27 +1637,7 @@ def _restart_default_dashboard_after_gateway_restart(system: bool = False) -> bo
 
     try:
         _stop_dashboard_processes_for_autostart(_find_default_dashboard_pids())
-        log_path = _dashboard_autostart_log_path()
-        env = os.environ.copy()
-        env["HERMES_HOME"] = str(get_hermes_home().resolve())
-        popen_kwargs = {
-            "cwd": str(PROJECT_ROOT),
-            "env": env,
-            "stdin": subprocess.DEVNULL,
-            "stdout": None,
-            "stderr": subprocess.STDOUT,
-        }
-
-        with open(log_path, "ab") as log_fp:
-            popen_kwargs["stdout"] = log_fp
-            if is_windows():
-                popen_kwargs["creationflags"] = (
-                    getattr(subprocess, "DETACHED_PROCESS", 0)
-                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                )
-            else:
-                popen_kwargs["start_new_session"] = True
-            subprocess.Popen(_dashboard_autostart_command(), **popen_kwargs)
+        log_path = _spawn_dashboard_detached()
 
         print(f"Hermes Web UI → http://{DEFAULT_DASHBOARD_HOST}:{DEFAULT_DASHBOARD_PORT}")
         if _wait_for_dashboard_ready():

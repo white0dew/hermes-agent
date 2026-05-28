@@ -31,12 +31,37 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 from urllib.parse import urljoin
 
-from utils import is_truthy_value
+def _load_repo_utils_module():
+    import importlib.util as _importlib_util
+
+    utils_path = Path(__file__).resolve().parents[1] / "utils.py"
+    utils_module = sys.modules.get("utils")
+    if (
+        utils_module is not None
+        and hasattr(utils_module, "is_truthy_value")
+        and getattr(utils_module, "__file__", None)
+        and Path(utils_module.__file__).resolve() == utils_path
+    ):
+        return utils_module
+
+    utils_spec = _importlib_util.spec_from_file_location("utils", utils_path)
+    if utils_spec is None or utils_spec.loader is None:
+        raise ImportError(f"Unable to load repo utils module from {utils_path}")
+
+    utils_module = _importlib_util.module_from_spec(utils_spec)
+    sys.modules["utils"] = utils_module
+    utils_spec.loader.exec_module(utils_module)
+    return utils_module
+
+
+_is_truthy_value = _load_repo_utils_module().is_truthy_value
+
 from tools.managed_tool_gateway import resolve_managed_tool_gateway
 from tools.tool_backend_helpers import (
     managed_nous_tools_enabled,
@@ -45,6 +70,10 @@ from tools.tool_backend_helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def is_truthy_value(value, default=False):
+    return _is_truthy_value(value, default=default)
 
 def get_env_value(name, default=None):
     """Read env values through the live config module.
@@ -1632,6 +1661,11 @@ def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, A
 
 def _resolve_openai_audio_client_config() -> tuple[str, str]:
     """Return direct OpenAI audio config or a managed gateway fallback."""
+    from tools.tool_backend_helpers import (
+        managed_nous_tools_enabled,
+        resolve_openai_audio_api_key,
+    )
+
     stt_config = _load_stt_config()
     openai_cfg = stt_config.get("openai", {})
     cfg_api_key = openai_cfg.get("api_key", "")

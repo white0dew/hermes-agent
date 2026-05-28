@@ -27,6 +27,7 @@ This starts a local web server and opens `http://127.0.0.1:9119` in your browser
 | `--port` | `9119` | Port to run the web server on |
 | `--host` | `127.0.0.1` | Bind address |
 | `--no-open` | — | Don't auto-open the browser |
+| `--back` | — | Start the dashboard in the background, force `--no-open`, write output to `~/.hermes/logs/dashboard-autostart.log`, print the URL/log path, and exit. If a dashboard is already running on the same host/port, Hermes stops it first and launches a fresh background instance. |
 | `--insecure` | off | Allow binding to non-localhost hosts (**DANGEROUS** — exposes API keys on the network; pair with a firewall and strong auth) |
 | `--tui` | off | Expose the in-browser Chat tab (embedded `hermes --tui` via PTY/WebSocket). Alternatively set `HERMES_DASHBOARD_TUI=1`. |
 
@@ -39,6 +40,9 @@ hermes dashboard --host 0.0.0.0
 
 # Start without opening browser
 hermes dashboard --no-open
+
+# Start in background and exit immediately
+hermes dashboard --back
 
 # Enable the in-browser Chat tab
 hermes dashboard --tui

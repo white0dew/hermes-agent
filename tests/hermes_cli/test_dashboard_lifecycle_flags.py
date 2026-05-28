@@ -22,7 +22,7 @@ def _ns(**kw):
     """Build an argparse.Namespace with dashboard defaults plus overrides."""
     defaults = dict(
         port=9119, host="127.0.0.1", no_open=False, insecure=False,
-        tui=False, stop=False, status=False,
+        tui=False, stop=False, status=False, back=False, skip_build=False,
     )
     defaults.update(kw)
     return argparse.Namespace(**defaults)
@@ -139,6 +139,22 @@ class TestLifecycleFlagsTakePrecedence:
         # Kill path must NOT run when --status is also set.
         mock_kill.assert_not_called()
 
+    def test_status_wins_over_detach(self):
+        with patch("hermes_cli.main._find_stale_dashboard_pids",
+                   return_value=[]), \
+             patch("hermes_cli.gateway._spawn_dashboard_detached") as mock_spawn, \
+             pytest.raises(SystemExit):
+            cmd_dashboard(_ns(status=True, back=True))
+        mock_spawn.assert_not_called()
+
+    def test_stop_wins_over_detach(self):
+        with patch("hermes_cli.main._find_stale_dashboard_pids",
+                   return_value=[]), \
+             patch("hermes_cli.gateway._spawn_dashboard_detached") as mock_spawn, \
+             pytest.raises(SystemExit):
+            cmd_dashboard(_ns(stop=True, back=True))
+        mock_spawn.assert_not_called()
+
     def test_stop_does_not_fall_through_to_server_start(self):
         """Covers the worst-case regression: if --stop ever stopped exiting
         early, the user would start the dashboard they just asked to stop."""
@@ -158,9 +174,80 @@ class TestLifecycleFlagsTakePrecedence:
         assert called["start"] is False
 
 
+class TestDashboardBack:
+    def test_back_starts_background_dashboard_and_exits(self, capsys):
+        with patch("hermes_cli.gateway._find_dashboard_pids_for_target", return_value=[]), \
+             patch("hermes_cli.gateway._dashboard_autostart_log_path",
+                   return_value=MagicMock(__str__=lambda self: "/tmp/dashboard-autostart.log")), \
+             patch("hermes_cli.gateway._spawn_dashboard_detached") as mock_spawn, \
+             patch("hermes_cli.gateway._wait_for_dashboard_ready", return_value=True), \
+             pytest.raises(SystemExit) as exc:
+            cmd_dashboard(_ns(back=True))
+
+        assert exc.value.code == 0
+        mock_spawn.assert_called_once_with(
+            host="127.0.0.1",
+            port=9119,
+            no_open=True,
+            allow_public=False,
+            embedded_chat=False,
+            skip_build=False,
+        )
+        out = capsys.readouterr().out
+        assert "Hermes Web UI → http://127.0.0.1:9119" in out
+        assert "Dashboard started in background" in out
+        assert "/tmp/dashboard-autostart.log" in out
+
+    def test_back_restarts_existing_dashboard_on_same_target(self, capsys):
+        with patch("hermes_cli.gateway._find_dashboard_pids_for_target", return_value=[321]), \
+             patch("hermes_cli.gateway._dashboard_autostart_log_path",
+                   return_value=MagicMock(__str__=lambda self: "/tmp/dashboard-autostart.log")), \
+             patch("hermes_cli.gateway._stop_dashboard_processes_for_autostart") as mock_stop, \
+             patch("hermes_cli.gateway._spawn_dashboard_detached") as mock_spawn, \
+             patch("hermes_cli.gateway._wait_for_dashboard_ready", return_value=True), \
+             pytest.raises(SystemExit) as exc:
+            cmd_dashboard(_ns(back=True, host="localhost", port=9120))
+
+        assert exc.value.code == 0
+        mock_stop.assert_called_once_with([321])
+        mock_spawn.assert_called_once_with(
+            host="localhost",
+            port=9120,
+            no_open=True,
+            allow_public=False,
+            embedded_chat=False,
+            skip_build=False,
+        )
+        out = capsys.readouterr().out
+        assert "Hermes Web UI → http://localhost:9120" in out
+        assert "already running for localhost:9120; restarting" in out
+        assert "Dashboard started in background" in out
+        assert "/tmp/dashboard-autostart.log" in out
+
+    def test_iter_processes_ignores_lifecycle_wrapper_processes(self):
+        from hermes_cli.gateway import _iter_dashboard_processes
+
+        def _ps_line(pid, cmd):
+            return f"{pid:>7} {cmd}"
+
+        with patch("hermes_cli.gateway.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="\n".join([
+                    _ps_line(12345, "python3 -m hermes_cli.main dashboard --host 127.0.0.1 --port 9119 --no-open"),
+                    _ps_line(22222, "/usr/bin/bash -c source venv/bin/activate && python -m hermes_cli.main dashboard --status"),
+                    _ps_line(33333, "/usr/bin/bash -c source venv/bin/activate && python -m hermes_cli.main dashboard --back --port 9119"),
+                ]) + "\n",
+                stderr="",
+            )
+            processes = _iter_dashboard_processes()
+
+        assert [pid for pid, _ in processes] == [12345]
+
+
 class TestArgparseWiring:
     """Confirm the flags are exposed via the real argparse tree so
-    ``hermes dashboard --stop`` / ``--status`` actually parse."""
+    ``hermes dashboard --back`` / ``--stop`` / ``--status`` actually parse."""
 
     def test_flags_are_registered(self):
         from hermes_cli.main import main as _cli_main  # noqa: F401

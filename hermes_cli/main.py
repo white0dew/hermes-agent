@@ -6779,6 +6779,14 @@ def _find_stale_dashboard_pids() -> list[int]:
         "hermes_cli.main dashboard",
         "hermes_cli/main.py dashboard",
     ]
+    lifecycle_markers = (
+        " dashboard --status",
+        " dashboard --stop",
+        " dashboard --back",
+        " dashboard --detach",
+        " dashboard --help",
+        " dashboard -h",
+    )
     self_pid = os.getpid()
     dashboard_pids: list[int] = []
 
@@ -6810,6 +6818,7 @@ def _find_stale_dashboard_pids() -> list[int]:
                     pid_str = line[len("ProcessId=") :]
                     if (
                         any(p in current_cmd for p in patterns)
+                        and not any(marker in current_cmd for marker in lifecycle_markers)
                         and int(pid_str) != self_pid
                     ):
                         try:
@@ -6842,7 +6851,11 @@ def _find_stale_dashboard_pids() -> list[int]:
                     except ValueError:
                         continue
                     command = parts[1]
-                    if any(p in command for p in patterns) and pid != self_pid:
+                    if (
+                        any(p in command for p in patterns)
+                        and not any(marker in command for marker in lifecycle_markers)
+                        and pid != self_pid
+                    ):
                         dashboard_pids.append(pid)
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return []
@@ -10859,7 +10872,7 @@ def _report_dashboard_status() -> int:
 
 
 def cmd_dashboard(args):
-    """Start the web UI server, or (with --stop/--status) manage running ones."""
+    """Start the web UI server, or manage lifecycle/background flags."""
     # --status: report running dashboards and exit, no deps needed.
     if getattr(args, "status", False):
         count = _report_dashboard_status()
@@ -10877,6 +10890,38 @@ def cmd_dashboard(args):
         # we killed at least one, 1 if they were all unkillable.
         remaining = _find_stale_dashboard_pids()
         sys.exit(1 if remaining else 0)
+
+    if getattr(args, "back", getattr(args, "detach", False)):
+        from hermes_cli.gateway import (
+            _dashboard_autostart_log_path,
+            _find_dashboard_pids_for_target,
+            _stop_dashboard_processes_for_autostart,
+            _spawn_dashboard_detached,
+            _wait_for_dashboard_ready,
+        )
+
+        host = getattr(args, "host", "127.0.0.1") or "127.0.0.1"
+        port = int(getattr(args, "port", 9119) or 9119)
+        running = _find_dashboard_pids_for_target(host, port)
+        log_path = _dashboard_autostart_log_path()
+        print(f"Hermes Web UI → http://{host}:{port}")
+        if running:
+            print(f"  Dashboard already running for {host}:{port}; restarting. Log: {log_path}")
+            _stop_dashboard_processes_for_autostart(running)
+
+        _spawn_dashboard_detached(
+            host=host,
+            port=port,
+            no_open=True,
+            allow_public=getattr(args, "insecure", False),
+            embedded_chat=args.tui or os.environ.get("HERMES_DASHBOARD_TUI") == "1",
+            skip_build=getattr(args, "skip_build", False),
+        )
+        if _wait_for_dashboard_ready(host=host, port=port):
+            print(f"  Dashboard started in background. Log: {log_path}")
+        else:
+            print(f"  Dashboard is starting in background. Log: {log_path}")
+        sys.exit(0)
 
     try:
         import fastapi  # noqa: F401
@@ -14051,6 +14096,16 @@ Examples:
         "dashboard",
         help="Start the web UI dashboard",
         description="Launch the Hermes Agent web dashboard for managing config, API keys, and sessions",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+    hermes dashboard
+    hermes dashboard --port 8080 --no-open
+    hermes dashboard --back
+    hermes dashboard --tui
+    hermes dashboard --status
+    hermes dashboard --stop
+""",
     )
     dashboard_parser.add_argument(
         "--port", type=int, default=9119, help="Port (default 9119)"
@@ -14060,6 +14115,21 @@ Examples:
     )
     dashboard_parser.add_argument(
         "--no-open", action="store_true", help="Don't open browser automatically"
+    )
+    dashboard_parser.add_argument(
+        "--back",
+        dest="back",
+        action="store_true",
+        help=(
+            "Start the dashboard in the background, print the URL and log path, "
+            "then exit"
+        ),
+    )
+    dashboard_parser.add_argument(
+        "--detach",
+        dest="back",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     dashboard_parser.add_argument(
         "--insecure",

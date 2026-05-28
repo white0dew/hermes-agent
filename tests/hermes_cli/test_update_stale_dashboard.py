@@ -157,6 +157,27 @@ class TestFindStaleDashboardPids:
             pids = _find_stale_dashboard_pids()
         assert pids == [12345]
 
+    def test_lifecycle_wrapper_processes_not_matched(self):
+        """`--status`/`--stop`/`--back` shell wrappers are not real servers.
+
+        Running a lifecycle command from a shell can leave a short-lived parent
+        process whose cmdline contains `python -m hermes_cli.main dashboard --status`
+        (or `--back` / `--stop`). That wrapper must not be mistaken for a running
+        dashboard server, or background launch/status checks become self-fulfilling.
+        """
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="\n".join([
+                    _ps_line(12345, "python3 -m hermes_cli.main dashboard --port 9119 --no-open"),
+                    _ps_line(22222, "/usr/bin/bash -c source venv/bin/activate && python -m hermes_cli.main dashboard --status"),
+                    _ps_line(33333, "/usr/bin/bash -c source venv/bin/activate && python -m hermes_cli.main dashboard --back --port 9120"),
+                ]) + "\n",
+                stderr="",
+            )
+            pids = _find_stale_dashboard_pids()
+        assert pids == [12345]
+
     def test_grep_lines_ignored(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(

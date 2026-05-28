@@ -71,6 +71,7 @@ Examples:
     hermes debug share             Upload debug report for support
     hermes update                 Update to latest version
     hermes dashboard              Start web UI dashboard (port 9119)
+    hermes dashboard --back       Start dashboard in background and exit
     hermes dashboard --stop       Stop running dashboard processes
     hermes dashboard --status     List running dashboard processes
 
