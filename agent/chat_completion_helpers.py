@@ -115,6 +115,19 @@ def _is_openai_codex_backend(agent) -> bool:
     )
 
 
+def _codex_event_stale_timeout_default(agent, est_tokens: int) -> float:
+    """Default idle cutoff for Codex Responses streams after the first SSE event."""
+    if est_tokens > 100_000:
+        return 180.0
+    if est_tokens > 50_000:
+        return 120.0
+    if est_tokens > 10_000:
+        return 60.0
+    if not _is_openai_codex_backend(agent):
+        return 60.0
+    return 12.0
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, str(default)))
@@ -268,14 +281,10 @@ def interruptible_api_call(agent, api_kwargs: dict):
         elif _est_tokens_for_codex_watchdog > 25_000:
             _stale_timeout = max(_stale_timeout, 600.0)
 
-    if _est_tokens_for_codex_watchdog > 100_000:
-        _codex_idle_timeout_default = 180.0
-    elif _est_tokens_for_codex_watchdog > 50_000:
-        _codex_idle_timeout_default = 120.0
-    elif _est_tokens_for_codex_watchdog > 10_000:
-        _codex_idle_timeout_default = 60.0
-    else:
-        _codex_idle_timeout_default = 12.0
+    _codex_idle_timeout_default = _codex_event_stale_timeout_default(
+        agent,
+        _est_tokens_for_codex_watchdog,
+    )
 
     # No-byte TTFB cutoff. The OpenAI SDK's own streaming read timeout is far
     # longer (openai 2.x DEFAULT_TIMEOUT.read = 600s), so a tight 12s default
