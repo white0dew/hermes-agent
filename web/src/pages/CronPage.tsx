@@ -18,6 +18,17 @@ import { H2 } from "@nous-research/ui/ui/components/typography/h2";
 import { api } from "@/lib/api";
 import type { CronJob, ProfileInfo } from "@/lib/api";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import {
+  DEFAULT_SCHEDULE_STATE,
+  ScheduleBuilder,
+} from "@/components/ScheduleBuilder";
+import {
+  buildScheduleString,
+  describeSchedule,
+  englishOrdinal,
+  type ScheduleBuilderState,
+  type ScheduleDescribeStrings,
+} from "@/lib/schedule";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
 import { useConfirmDelete } from "@nous-research/ui/hooks/use-confirm-delete";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
@@ -67,12 +78,20 @@ function getJobTitle(job: CronJob): string {
   return job.id || "Cron job";
 }
 
-function getJobScheduleDisplay(job: CronJob): string {
-  return (
-    asText(job.schedule_display) ||
-    asText(job.schedule?.display) ||
-    asText(job.schedule?.expr) ||
-    "—"
+function getJobScheduleDisplay(
+  job: CronJob,
+  strings: ScheduleDescribeStrings,
+): string {
+  // Prefer a structured render so cron expressions like
+  // ``30 14 * * 1,3,5`` surface as "Weekly on Mon, Wed, Fri at 14:30"
+  // in the list instead of the raw five-field gibberish. Falls back
+  // through the existing chain (``schedule_display`` from the backend,
+  // then the structured ``display`` field, then the raw ``expr``) so
+  // legacy job rows still render *something* meaningful.
+  return describeSchedule(
+    job.schedule,
+    asText(job.schedule_display) || asText(job.schedule?.display),
+    strings,
   );
 }
 
@@ -139,12 +158,35 @@ export default function CronPage() {
   const [selectedProfile, setSelectedProfile] = useState("all");
   const [loading, setLoading] = useState(true);
   const { toast, showToast } = useToast();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { setEnd } = usePageHeader();
 
+  // Translation surface for the human-readable schedule describer.
+  // English ordinals are a special case ("1st", "2nd", "23rd"); every
+  // other locale falls back to the plain numeric form, which avoids
+  // shipping incorrect grammar (e.g. naive "1th"/"2th" suffixes that
+  // don't exist in most languages).
+  //
+  // Built inline (not memoized) — the cron page renders a small job
+  // list, this is single-digit microseconds, and a useMemo here would
+  // just add boilerplate.
+  const scheduleDescribeStrings: ScheduleDescribeStrings = {
+    ...t.cron.scheduleDescribe,
+    weekdaysShort: t.cron.scheduleModes.weekdaysShort,
+    ordinal: locale === "en" ? englishOrdinal : (n: number) => String(n),
+  };
+
+  // New job modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [schedule, setSchedule] = useState("");
+  // The schedule is now constructed via the ScheduleBuilder; we keep
+  // the full builder state so flipping between modes during edit
+  // doesn't erase the user's intermediate inputs. The actual string
+  // sent to the backend is derived via ``buildScheduleString`` at
+  // submit time.
+  const [scheduleState, setScheduleState] = useState<ScheduleBuilderState>(
+    DEFAULT_SCHEDULE_STATE,
+  );
   const [name, setName] = useState("");
   const closeCreateModal = useCallback(() => setCreateModalOpen(false), []);
   const createModalRef = useModalBehavior({
@@ -183,8 +225,10 @@ export default function CronPage() {
     loadJobs();
   }, [loadJobs]);
 
+  const scheduleString = buildScheduleString(scheduleState);
+
   const handleCreate = async () => {
-    if (!prompt.trim() || !schedule.trim()) {
+    if (!prompt.trim() || !scheduleString) {
       showToast(`${t.cron.prompt} & ${t.cron.schedule} required`, "error");
       return;
     }
@@ -193,7 +237,7 @@ export default function CronPage() {
       await api.createCronJob(
         {
           prompt: prompt.trim(),
-          schedule: schedule.trim(),
+          schedule: scheduleString,
           name: name.trim() || undefined,
           deliver: buildDeliver(deliver, deliverTarget),
         },
@@ -201,7 +245,7 @@ export default function CronPage() {
       );
       showToast(t.common.create + " ✓", "success");
       setPrompt("");
-      setSchedule("");
+      setScheduleState(DEFAULT_SCHEDULE_STATE);
       setName("");
       setDeliver("local");
       setDeliverTarget("");
@@ -218,12 +262,12 @@ export default function CronPage() {
     const parsedDeliver = splitDeliver(job.deliver);
     setEditingId(job.id);
     setEditingPrompt(getJobPrompt(job));
-    setEditingSchedule(getJobScheduleDisplay(job));
+    setEditingSchedule(getJobScheduleDisplay(job, scheduleDescribeStrings));
     setEditingName(getJobName(job));
     setEditingDeliver(parsedDeliver.kind);
     setEditingDeliverTarget(parsedDeliver.target);
     setEditingProfile(getJobProfile(job));
-  }, []);
+  }, [scheduleDescribeStrings]);
 
   const cancelEdit = useCallback(() => {
     setEditingId(null);
@@ -460,31 +504,24 @@ export default function CronPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="cron-schedule">{t.cron.schedule}</Label>
-                  <Input
-                    id="cron-schedule"
-                    placeholder={t.cron.schedulePlaceholder}
-                    value={schedule}
-                    onChange={(e) => setSchedule(e.target.value)}
-                  />
-                </div>
+              <ScheduleBuilder
+                value={scheduleState}
+                onChange={setScheduleState}
+              />
 
-                <div className="grid gap-2">
-                  <Label htmlFor="cron-deliver">{t.cron.deliverTo}</Label>
-                  <Select
-                    id="cron-deliver"
-                    value={deliver}
-                    onValueChange={(v) => setDeliver(v)}
-                  >
-                    {DELIVERY_OPTIONS.map((option) => (
-                      <SelectOption key={option} value={option}>
-                        {deliveryLabel(option)}
-                      </SelectOption>
-                    ))}
-                  </Select>
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cron-deliver">{t.cron.deliverTo}</Label>
+                <Select
+                  id="cron-deliver"
+                  value={deliver}
+                  onValueChange={(v) => setDeliver(v)}
+                >
+                  {DELIVERY_OPTIONS.map((option) => (
+                    <SelectOption key={option} value={option}>
+                      {deliveryLabel(option)}
+                    </SelectOption>
+                  ))}
+                </Select>
               </div>
 
               {deliver === "feishu" && (
@@ -700,7 +737,9 @@ export default function CronPage() {
                     </p>
                   )}
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="font-mono">{getJobScheduleDisplay(job)}</span>
+                    <span className="font-mono-ui">
+                      {getJobScheduleDisplay(job, scheduleDescribeStrings)}
+                    </span>
                     <span>
                       {t.cron.last}: {formatTime(job.last_run_at)}
                     </span>
