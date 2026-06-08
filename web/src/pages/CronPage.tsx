@@ -16,7 +16,7 @@ import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { H2 } from "@nous-research/ui/ui/components/typography/h2";
 import { api } from "@/lib/api";
-import type { CronJob, ProfileInfo } from "@/lib/api";
+import type { CronJob, CronDeliveryTarget, ProfileInfo } from "@/lib/api";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import {
   DEFAULT_SCHEDULE_STATE,
@@ -134,6 +134,28 @@ const DELIVERY_OPTIONS = [
   "feishu",
 ] as const;
 
+function fallbackDeliveryTarget(id: string): CronDeliveryTarget {
+  return {
+    id,
+    name: id === "local" ? "Local" : id.charAt(0).toUpperCase() + id.slice(1),
+    home_target_set: true,
+    home_env_var: null,
+  };
+}
+
+function mergeDeliveryTargets(
+  targets: CronDeliveryTarget[],
+): CronDeliveryTarget[] {
+  const seen = new Set(targets.map((target) => target.id));
+  const merged = [...targets];
+  for (const option of DELIVERY_OPTIONS) {
+    if (!seen.has(option)) {
+      merged.push(fallbackDeliveryTarget(option));
+    }
+  }
+  return merged;
+}
+
 function splitDeliver(value?: string | null): { kind: string; target: string } {
   const raw = (value || "local").trim();
   if (raw.startsWith("feishu:")) {
@@ -195,6 +217,9 @@ export default function CronPage() {
   });
   const [deliver, setDeliver] = useState("local");
   const [deliverTarget, setDeliverTarget] = useState("");
+  const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>([
+    fallbackDeliveryTarget("local"),
+  ]);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingPrompt, setEditingPrompt] = useState("");
@@ -222,10 +247,72 @@ export default function CronPage() {
   }, []);
 
   useEffect(() => {
+    api
+      .getCronDeliveryTargets()
+      .then((res) => setDeliveryTargets(mergeDeliveryTargets(res.targets)))
+      .catch(() =>
+        // Fall back to local-only so the modal still works if the endpoint fails.
+        setDeliveryTargets(mergeDeliveryTargets([fallbackDeliveryTarget("local")])),
+      );
+  }, []);
+
+  useEffect(() => {
     loadJobs();
   }, [loadJobs]);
 
   const scheduleString = buildScheduleString(scheduleState);
+
+  // Label for a delivery option. Configured platforms missing their cron home
+  // channel are still offered (option B), annotated so the user knows what to
+  // fix rather than wondering why delivery silently no-ops.
+  const deliverLabel = useCallback(
+    (target: CronDeliveryTarget): string => {
+      const base = target.id === "local" ? t.cron.delivery.local : target.name;
+      if (target.id !== "local" && !target.home_target_set) {
+        const hint = t.cron.delivery.needsHomeChannel ?? "set a home channel first";
+        return `${base} — ${hint}`;
+      }
+      return base;
+    },
+    [t.cron.delivery],
+  );
+
+  const renderDeliverOptions = useCallback(
+    () =>
+      deliveryTargets.map((target) => (
+        <SelectOption key={target.id} value={target.id}>
+          {deliverLabel(target)}
+        </SelectOption>
+      )),
+    [deliveryTargets, deliverLabel],
+  );
+
+  // The edit modal must always show the job's current target, even if that
+  // platform is no longer configured (e.g. job created via CLI, or the
+  // gateway was later removed) — otherwise the value would silently vanish
+  // from the dropdown and saving would drop it.
+  const renderEditDeliverOptions = useCallback(
+    (current: string) => {
+      const known = new Set(deliveryTargets.map((target) => target.id));
+      const options = deliveryTargets.map((target) => (
+        <SelectOption key={target.id} value={target.id}>
+          {deliverLabel(target)}
+        </SelectOption>
+      ));
+      if (current && !known.has(current)) {
+        options.push(
+          <SelectOption key={current} value={current}>
+            {current}
+          </SelectOption>,
+        );
+      }
+      return options;
+    },
+    [deliveryTargets, deliverLabel],
+  );
+
+  const onlyLocalAvailable =
+    deliveryTargets.filter((target) => target.id !== "local").length === 0;
 
   const handleCreate = async () => {
     if (!prompt.trim() || !scheduleString) {
@@ -305,25 +392,6 @@ export default function CronPage() {
       showToast(`${t.config.failedToSave}: ${e}`, "error");
     } finally {
       setSavingEdit(false);
-    }
-  };
-
-  const deliveryLabel = (value: string) => {
-    switch (value) {
-      case "local":
-        return t.cron.delivery.local;
-      case "telegram":
-        return t.cron.delivery.telegram;
-      case "discord":
-        return t.cron.delivery.discord;
-      case "slack":
-        return t.cron.delivery.slack;
-      case "email":
-        return t.cron.delivery.email;
-      case "feishu":
-        return t.cron.delivery.feishu;
-      default:
-        return value;
     }
   };
 
@@ -516,12 +584,14 @@ export default function CronPage() {
                   value={deliver}
                   onValueChange={(v) => setDeliver(v)}
                 >
-                  {DELIVERY_OPTIONS.map((option) => (
-                    <SelectOption key={option} value={option}>
-                      {deliveryLabel(option)}
-                    </SelectOption>
-                  ))}
+                  {renderDeliverOptions()}
                 </Select>
+                {onlyLocalAvailable && (
+                  <p className="text-xs text-muted-foreground">
+                    {t.cron.delivery.noneConfigured ??
+                      "No messaging platforms configured. Set one up under Channels to deliver reports."}
+                  </p>
+                )}
               </div>
 
               {deliver === "feishu" && (
@@ -630,11 +700,7 @@ export default function CronPage() {
                       value={editingDeliver}
                       onValueChange={(v) => setEditingDeliver(v)}
                     >
-                      {DELIVERY_OPTIONS.map((option) => (
-                        <SelectOption key={option} value={option}>
-                          {deliveryLabel(option)}
-                        </SelectOption>
-                      ))}
+                      {renderEditDeliverOptions(editingDeliver)}
                     </Select>
                   </div>
                 </div>
