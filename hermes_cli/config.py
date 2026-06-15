@@ -1170,6 +1170,13 @@ DEFAULT_CONFIG = {
                                       # Default False matches historical behavior; set to
                                       # True if you'd rather pause than silently lose
                                       # context turns when your aux model is flaky.
+        "cache_friendly_summary": False,  # OpenAI/Codex-only opt-in. When True and
+                                      # compression uses the main model, build the
+                                      # summary request as: full main-session
+                                      # messages + a final compression instruction,
+                                      # with the same tool schemas and
+                                      # tool_choice="none". This lets OpenAI prompt
+                                      # caching reuse the hot main-session prefix.
         "codex_gpt55_autoraise": True,  # When True, gpt-5.5 on the ChatGPT Codex OAuth
                                       # route raises its compaction trigger to 85% (vs the
                                       # global `threshold` above). Codex hard-caps gpt-5.5

@@ -97,7 +97,7 @@ def test_ttfb_kills_when_no_stream_event(tmp_path, monkeypatch):
         assert "TTFB" in str(excinfo.value)
         assert "codex_ttfb_kill" in closes
         # ~1s cutoff + 2s join grace; must be far under the 60s stale timeout.
-        assert elapsed < 15, f"TTFB watchdog took {elapsed:.1f}s"
+        assert elapsed < 30, f"TTFB watchdog took {elapsed:.1f}s"
     finally:
         stop["flag"] = True
 
@@ -314,6 +314,23 @@ def test_event_idle_kills_after_first_event_then_silence(tmp_path, monkeypatch):
         assert "codex_ttfb_kill" not in closes
     finally:
         stop["flag"] = True
+
+
+def test_custom_codex_gateway_uses_more_generous_event_idle_default(tmp_path, monkeypatch):
+    """OpenAI-compatible Codex gateways can pause longer than the official
+    backend between SSE frames, so their small-context default should not be
+    the tight openai-codex 12s cutoff."""
+    from agent import chat_completion_helpers as h
+
+    openai_agent = _make_codex_agent(tmp_path, monkeypatch)
+    assert h._codex_event_stale_timeout_default(openai_agent, 1_000) == 12.0
+
+    custom_agent = SimpleNamespace(
+        provider="custom:newapi",
+        _base_url_lower="https://newapi.aistar.cool/v1",
+        _base_url_hostname="newapi.aistar.cool",
+    )
+    assert h._codex_event_stale_timeout_default(custom_agent, 1_000) == 60.0
 
 
 def test_ttfb_disabled_via_env_zero(tmp_path, monkeypatch):

@@ -1295,6 +1295,9 @@ def init_agent(
     compression_abort_on_summary_failure = str(
         _compression_cfg.get("abort_on_summary_failure", False)
     ).lower() in {"true", "1", "yes"}
+    compression_cache_friendly_summary = str(
+        _compression_cfg.get("cache_friendly_summary", False)
+    ).lower() in {"true", "1", "yes"}
 
     # Read optional explicit context_length override for the auxiliary
     # compression model. Custom endpoints often cannot report this via
@@ -1512,6 +1515,7 @@ def init_agent(
             provider=agent.provider,
             api_mode=agent.api_mode,
             abort_on_summary_failure=compression_abort_on_summary_failure,
+            cache_friendly_summary=compression_cache_friendly_summary,
         )
     agent.compression_enabled = compression_enabled
 
@@ -1566,6 +1570,16 @@ def init_agent(
                 agent.valid_tool_names.add(_tname)
                 agent._context_engine_tool_names.add(_tname)
                 _existing_tool_names.add(_tname)
+
+    if (
+        hasattr(agent, "context_compressor")
+        and agent.context_compressor
+        and hasattr(agent.context_compressor, "update_tools")
+    ):
+        try:
+            agent.context_compressor.update_tools(agent.tools or [])
+        except Exception as _ce_tools_err:
+            _ra().logger.debug("Context compressor update_tools: %s", _ce_tools_err)
 
     # Notify context engine of session start
     if hasattr(agent, "context_compressor") and agent.context_compressor:

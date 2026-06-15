@@ -623,6 +623,7 @@ class ContextCompressor(ContextEngine):
         self.last_compression_rough_tokens = 0
         self.last_rough_tokens_when_real_prompt_fit = 0
         self.awaiting_real_usage_after_compression = False
+        self._session_id = None
 
     def on_session_end(self, session_id: str, messages: List[Dict[str, Any]]) -> None:
         """Clear per-session compaction state at a real session boundary.
@@ -639,6 +640,7 @@ class ContextCompressor(ContextEngine):
         owning session ends.
         """
         self._previous_summary = None
+        self._session_id = None
 
     def update_model(
         self,
@@ -683,6 +685,7 @@ class ContextCompressor(ContextEngine):
         provider: str = "",
         api_mode: str = "",
         abort_on_summary_failure: bool = False,
+        cache_friendly_summary: bool = False,
     ):
         self.model = model
         self.base_url = base_url
@@ -699,6 +702,9 @@ class ContextCompressor(ContextEngine):
         # When False (default = historical behavior), insert a
         # deterministic "summary unavailable" handoff and drop the middle window.
         self.abort_on_summary_failure = abort_on_summary_failure
+        self.cache_friendly_summary = cache_friendly_summary
+        self.tools: List[Dict[str, Any]] = []
+        self._session_id: Optional[str] = None
 
         self.context_length = get_model_context_length(
             model, base_url=base_url, api_key=api_key,
@@ -767,6 +773,13 @@ class ContextCompressor(ContextEngine):
         # succeeded.  Silent recovery would hide the broken config.
         self._last_aux_model_failure_error: Optional[str] = None
         self._last_aux_model_failure_model: Optional[str] = None
+
+    def update_tools(self, tools: List[Dict[str, Any]]) -> None:
+        """Update the tool schema list sent by the main agent loop."""
+        self.tools = list(tools or [])
+
+    def on_session_start(self, session_id: str, **kwargs) -> None:
+        self._session_id = session_id
 
     def update_from_response(self, usage: Dict[str, Any]):
         """Update tracked token usage from API response."""
@@ -1302,10 +1315,58 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         self.summary_model = ""  # empty = use main model
         self._summary_failure_cooldown_until = 0.0  # no cooldown — retry immediately
 
+    def _can_use_cache_friendly_summary(self, full_messages: Optional[List[Dict[str, Any]]]) -> bool:
+        if not self.cache_friendly_summary:
+            return False
+        if not full_messages:
+            return False
+        if self.summary_model and self.summary_model != self.model:
+            return False
+
+        provider = (self.provider or "").strip().lower()
+        base_url = (self.base_url or "").strip().lower()
+        return (
+            provider in {"openai-codex", "openai"}
+            or "api.openai.com" in base_url
+            or "chatgpt.com/backend-api/codex" in base_url
+        )
+
+    def _cache_friendly_extra_body(self) -> Dict[str, Any]:
+        extra: Dict[str, Any] = {}
+        if self.api_mode == "codex_responses" and self._session_id:
+            extra["prompt_cache_key"] = self._session_id
+        return extra
+
+    def _build_cache_friendly_summary_prompt(
+        self,
+        prompt: str,
+        compress_start: Optional[int],
+        compress_end: Optional[int],
+    ) -> str:
+        scope = ""
+        if compress_start is not None and compress_end is not None:
+            scope = (
+                f"\n\nCOMPACTION SCOPE: Compact prior conversation history, with "
+                f"primary attention to message indexes [{compress_start}:{compress_end}). "
+                "Use protected head and recent tail messages as context, but preserve "
+                "details from the scoped middle window in the checkpoint summary."
+            )
+        return (
+            "CONTEXT COMPRESSION MODE\n\n"
+            "The full conversation appears above. Do not call tools, do not ask "
+            "questions, and do not continue the user-facing conversation. Create "
+            "only the context checkpoint summary requested below.\n\n"
+            f"{prompt}"
+            f"{scope}"
+        )
+
     def _generate_summary(
         self,
         turns_to_summarize: List[Dict[str, Any]],
         focus_topic: Optional[str] = None,
+        full_messages: Optional[List[Dict[str, Any]]] = None,
+        compress_start: Optional[int] = None,
+        compress_end: Optional[int] = None,
     ) -> Optional[str]:
         """Generate a structured summary of conversation turns.
 
@@ -1496,6 +1557,19 @@ FOCUS TOPIC: "{focus_topic}"
 This compaction should PRIORITISE preserving all information related to the focus topic above. For content related to "{focus_topic}", include full detail — exact values, file paths, command outputs, error messages, and decisions. For content NOT related to the focus topic, summarise more aggressively (brief one-liners or omit if truly irrelevant). The focus topic sections should receive roughly 60-70% of the summary token budget. Even for the focus topic, NEVER preserve API keys, tokens, passwords, or credentials — use [REDACTED]."""
 
         try:
+            use_cache_friendly = self._can_use_cache_friendly_summary(full_messages)
+            summary_messages = [{"role": "user", "content": prompt}]
+            if use_cache_friendly:
+                summary_messages = list(full_messages or []) + [
+                    {
+                        "role": "user",
+                        "content": self._build_cache_friendly_summary_prompt(
+                            prompt,
+                            compress_start,
+                            compress_end,
+                        ),
+                    }
+                ]
             call_kwargs = {
                 "task": "compression",
                 "main_runtime": {
@@ -1505,10 +1579,16 @@ This compaction should PRIORITISE preserving all information related to the focu
                     "api_key": self.api_key,
                     "api_mode": self.api_mode,
                 },
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": summary_messages,
                 "max_tokens": int(summary_budget * 1.3),
                 # timeout resolved from auxiliary.compression.timeout config by call_llm
             }
+            if use_cache_friendly:
+                call_kwargs["tools"] = self.tools or None
+                call_kwargs["tool_choice"] = "none"
+                extra_body = self._cache_friendly_extra_body()
+                if extra_body:
+                    call_kwargs["extra_body"] = extra_body
             if self.summary_model:
                 call_kwargs["model"] = self.summary_model
             response = call_llm(**call_kwargs)
@@ -1597,7 +1677,13 @@ This compaction should PRIORITISE preserving all information related to the focu
                 else:
                     _reason = "timed out"
                 self._fallback_to_main_for_compression(e, _reason)
-                return self._generate_summary(turns_to_summarize, focus_topic=focus_topic)  # retry immediately
+                return self._generate_summary(
+                    turns_to_summarize,
+                    focus_topic=focus_topic,
+                    full_messages=full_messages,
+                    compress_start=compress_start,
+                    compress_end=compress_end,
+                )  # retry immediately
 
             # Unknown-error best-effort retry on main model.  Losing N turns of
             # context is almost always worse than one extra summary attempt, so
@@ -1614,7 +1700,13 @@ This compaction should PRIORITISE preserving all information related to the focu
                 and not getattr(self, "_summary_model_fallen_back", False)
             ):
                 self._fallback_to_main_for_compression(e, "failed")
-                return self._generate_summary(turns_to_summarize, focus_topic=focus_topic)
+                return self._generate_summary(
+                    turns_to_summarize,
+                    focus_topic=focus_topic,
+                    full_messages=full_messages,
+                    compress_start=compress_start,
+                    compress_end=compress_end,
+                )
 
             # Transient errors (timeout, rate limit, network, JSON decode,
             # streaming premature-close) — shorter cooldown for JSON decode and
@@ -2198,6 +2290,10 @@ This compaction should PRIORITISE preserving all information related to the focu
         display_tokens = current_tokens if current_tokens else self.last_prompt_tokens or estimate_messages_tokens_rough(messages)
 
         # Phase 1: Prune old tool results (cheap, no LLM call)
+        # Cache-friendly OpenAI summarization needs the exact hot prefix from
+        # the main request. Keep a reference to the pre-pruned transcript for
+        # the summary call; the rebuilt conversation still uses pruned messages.
+        full_messages_for_summary = messages
         messages, pruned_count = self._prune_old_tool_results(
             messages, protect_tail_count=self.protect_last_n,
             protect_tail_tokens=self.tail_token_budget,
@@ -2280,7 +2376,13 @@ This compaction should PRIORITISE preserving all information related to the focu
 
         # Phase 3: Generate structured summary
         summary_focus_topic = focus_topic or self._derive_auto_focus_topic(messages)
-        summary = self._generate_summary(turns_to_summarize, focus_topic=summary_focus_topic)
+        summary = self._generate_summary(
+            turns_to_summarize,
+            focus_topic=summary_focus_topic,
+            full_messages=full_messages_for_summary,
+            compress_start=compress_start,
+            compress_end=compress_end,
+        )
 
         # If summary generation failed, behavior splits on
         # ``abort_on_summary_failure`` (config: compression.abort_on_summary_failure):

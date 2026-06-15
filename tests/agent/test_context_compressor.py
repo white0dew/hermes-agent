@@ -345,6 +345,59 @@ class TestNonStringContent:
             "api_mode": "codex_responses",
         }
 
+    def test_cache_friendly_summary_reuses_full_messages_tools_and_cache_key(self):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "cache friendly summary"
+
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+            c = ContextCompressor(
+                model="gpt-5.4",
+                provider="openai-codex",
+                base_url="https://chatgpt.com/backend-api/codex",
+                api_key="codex-token",
+                api_mode="codex_responses",
+                quiet_mode=True,
+                cache_friendly_summary=True,
+            )
+        c.on_session_start("session-123")
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_command",
+                    "description": "Run a command",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        c.update_tools(tools)
+
+        full_messages = [
+            {"role": "system", "content": "system prompt"},
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "second"},
+            {"role": "user", "content": "third"},
+        ]
+
+        with patch("agent.context_compressor.call_llm", return_value=mock_response) as mock_call:
+            summary = c._generate_summary(
+                full_messages[1:3],
+                full_messages=full_messages,
+                compress_start=1,
+                compress_end=3,
+            )
+
+        kwargs = mock_call.call_args.kwargs
+        assert kwargs["messages"][: len(full_messages)] == full_messages
+        assert kwargs["messages"][-1]["role"] == "user"
+        assert "CONTEXT COMPRESSION MODE" in kwargs["messages"][-1]["content"]
+        assert "message indexes [1:3)" in kwargs["messages"][-1]["content"]
+        assert kwargs["tools"] == tools
+        assert kwargs["tool_choice"] == "none"
+        assert kwargs["extra_body"] == {"prompt_cache_key": "session-123"}
+        assert "cache friendly summary" in summary
+
 
 class TestSummaryFailureCooldown:
     def test_summary_failure_enters_cooldown_and_skips_retry(self):
