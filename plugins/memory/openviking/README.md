@@ -14,6 +14,10 @@ Context database by Volcengine (ByteDance) with filesystem-style knowledge hiera
 hermes memory setup    # select "openviking"
 ```
 
+The setup can link to an existing `~/.openviking/ovcli.conf`, copy its current
+connection values into Hermes, or create a minimal `ovcli.conf` when one does
+not exist.
+
 Or manually:
 ```bash
 hermes config set memory.provider openviking
@@ -27,16 +31,16 @@ All config via environment variables in `.env`:
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `OPENVIKING_ENDPOINT` | `http://127.0.0.1:1933` | Server URL |
-| `OPENVIKING_API_KEY` | (none) | API key (optional) |
-| `OPENVIKING_ACCOUNT` | `default` | Tenant account ID |
-| `OPENVIKING_USER` | `default` | Tenant user ID within the account |
-| `OPENVIKING_AGENT` | `hermes` | Agent namespace sent to OpenViking |
+| `OPENVIKING_API_KEY` | (none) | User/admin API key for authenticated servers |
+| `OPENVIKING_ACCOUNT` | `default` | Tenant account for local/trusted mode |
+| `OPENVIKING_USER` | `default` | Tenant user for local/trusted mode |
+| `OPENVIKING_AGENT` | `hermes` | Hermes peer ID in OpenViking, used for peer-scoped memories |
 
 ## Notes
 
-- With no API key, Hermes uses the local/default tenant and sends `OPENVIKING_ACCOUNT` / `OPENVIKING_USER` as configured.
-- With a root key such as `ov-root-*`, Hermes also sends the configured tenant headers, including the literal `default` value. Some tenant-scoped OpenViking deployments reject root-key requests unless `X-OpenViking-Account` and `X-OpenViking-User` are present.
-- With a non-root user key, the literal `default` tenant is still treated as implicit and the headers are omitted, so the server can derive tenancy from the key itself.
+- With no API key, Hermes uses local/trusted mode and sends `OPENVIKING_ACCOUNT` / `OPENVIKING_USER` as identity headers.
+- With a non-root user key, Hermes lets OpenViking derive account/user identity from the key and omits tenant headers by default.
+- With a root key such as `ov-root-*`, Hermes sends the configured tenant headers, including the literal `default` value. Some tenant-scoped OpenViking deployments reject root-key requests unless `X-OpenViking-Account` and `X-OpenViking-User` are present.
 
 ## Tools
 
